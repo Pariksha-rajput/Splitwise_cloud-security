@@ -7,6 +7,7 @@ from threading import Lock
 from time import time
 
 # ── Structured Security Logger ────────────────────────────────────────────────
+# Logs flow to stdout → AKS container logs → Log Analytics → Azure Monitor alerts
 security_logger = logging.getLogger("spiltwise.security")
 security_logger.setLevel(logging.INFO)
 handler = logging.StreamHandler()
@@ -21,8 +22,8 @@ SCANNING_THRESHOLD     = 10     # unauthorized hits before flagging
 SCANNING_WINDOW        = 60     # within 1 minute
 SUSPICIOUS_AMOUNT      = 5000   # flag payments above $5000
 
-SNS_TOPIC_ARN = os.getenv("SNS_TOPIC_ARN", "")
-AWS_REGION    = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
+# Azure: alerts are triggered by Azure Monitor querying Log Analytics
+# No SDK needed — structured JSON to stdout is picked up by the OMS agent
 
 # ── In-memory trackers (thread-safe) ─────────────────────────────────────────
 failed_logins = defaultdict(list)
@@ -32,7 +33,7 @@ _lock         = Lock()
 # ── Core logging function ─────────────────────────────────────────────────────
 
 def log_security_event(event_type, details, severity="WARNING", notify=False):
-    """Log structured JSON security event. Flows to CloudWatch in production."""
+    """Log structured JSON security event. Flows to Azure Log Analytics via OMS agent."""
     event = {
         "timestamp":  datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         "service":    "spiltwise",
@@ -46,33 +47,8 @@ def log_security_event(event_type, details, severity="WARNING", notify=False):
         security_logger.critical(msg)
     else:
         security_logger.warning(msg)
-
-    if notify and SNS_TOPIC_ARN:
-        _send_sns_alert(event_type, details, severity)
-
-
-def _send_sns_alert(event_type, details, severity):
-    """Send SNS email/SMS alert — fires after AWS deployment."""
-    try:
-        import boto3
-        sns = boto3.client("sns", region_name=AWS_REGION)
-        message = (
-            f"SECURITY ALERT — Spiltwise\n"
-            f"Severity : {severity}\n"
-            f"Event    : {event_type}\n"
-            f"Time     : {datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')}\n"
-            f"Details  :\n{json.dumps(details, indent=2)}"
-        )
-        sns.publish(
-            TopicArn=SNS_TOPIC_ARN,
-            Subject=f"[Spiltwise Security] {severity}: {event_type}",
-            Message=message,
-        )
-    except Exception as e:
-        security_logger.error(json.dumps({
-            "event_type": "SNS_NOTIFICATION_FAILED",
-            "error": str(e)
-        }))
+    # Azure Monitor scheduled query alerts pick up CRITICAL events from Log Analytics
+    # No explicit notify call needed — alerts are wired in Terraform (main.tf)
 
 
 # ── Scenario 1: Brute Force Detection ────────────────────────────────────────

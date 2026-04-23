@@ -8,14 +8,21 @@ Spiltwise is a web-based expense splitting and payment tracking application buil
 
 ## Tech Stack
 
-| Layer      | Technology                        |
-|------------|-----------------------------------|
-| Backend    | Python, Flask 3.0                 |
-| Database   | SQLite (local) / PostgreSQL (AWS) |
-| ORM        | Flask-SQLAlchemy 3.1              |
-| Auth       | Flask-Bcrypt (password hashing), Flask sessions |
-| Frontend   | Jinja2 templates, HTML, CSS, vanilla JavaScript |
-| Config     | python-dotenv (.env file)         |
+| Layer        | Technology                                          |
+|--------------|-----------------------------------------------------|
+| Backend      | Python, Flask 3.0                                   |
+| Database     | SQLite (local) / Azure PostgreSQL Flexible Server   |
+| ORM          | Flask-SQLAlchemy 3.1                                |
+| Auth         | Flask-Bcrypt (password hashing), Flask sessions     |
+| Frontend     | Jinja2 templates, HTML, CSS, vanilla JavaScript     |
+| Config       | python-dotenv (.env file)                           |
+| Container    | Docker (python:3.11-slim, non-root user)            |
+| Orchestration| Azure Kubernetes Service (AKS)                      |
+| Registry     | Azure Container Registry (ACR)                      |
+| IaC          | Terraform (azurerm provider ~> 3.80)                |
+| Monitoring   | Azure Log Analytics + Microsoft Defender            |
+| Alerting     | Azure Monitor Scheduled Query Alerts + Action Group |
+| Secrets      | Azure Key Vault                                     |
 
 ---
 
@@ -225,8 +232,8 @@ SECRET_KEY=your_secret_key_here
 # Local development (SQLite)
 DATABASE_URL=sqlite:///spiltwise.db
 
-# AWS production (PostgreSQL RDS)
-# DATABASE_URL=postgresql://user:password@rds-endpoint:5432/spiltwise
+# Azure production (PostgreSQL Flexible Server)
+# DATABASE_URL=postgresql://splitwiseadmin:<password>@<postgresql_host>:5432/spiltwise
 ```
 
 ---
@@ -241,9 +248,9 @@ python app.py
 ```
 App runs at `http://localhost:5000`. The SQLite database file (`spiltwise.db`) is created automatically on first run.
 
-### AWS Deployment
-- Set `DATABASE_URL` environment variable to your RDS PostgreSQL connection string
-- Use a WSGI server (Gunicorn) instead of Flask's dev server
+### Azure Deployment
+- Set `DATABASE_URL` environment variable to your Azure PostgreSQL Flexible Server connection string
+- Use Gunicorn as the WSGI server instead of Flask's dev server
 - No code changes required — SQLAlchemy handles both SQLite and PostgreSQL
 
 ---
@@ -258,7 +265,7 @@ Client (Browser)
       |
    Flask App (app.py)
       |
-   SQLite / PostgreSQL (single DB)
+   SQLite / Azure PostgreSQL Flexible Server (single DB)
 ```
 
 ### Logical Service Boundaries (Potential Microservices)
@@ -285,34 +292,298 @@ Client (Browser / Mobile)
 ```
 
 - Each service owns its own database table(s)
-- Services communicate via REST APIs or a message queue (e.g. RabbitMQ / AWS SQS)
+- Services communicate via REST APIs or a message queue
 - The Balance Service subscribes to events from Expense and Payment services to recompute balances
 - Auth Service issues JWT tokens; all other services validate them independently
 
-### Why Monolith First
-For the current scope (single deployment, small team), a monolith is the right choice:
-- Simpler to develop, test, and deploy
-- No network latency between service calls
-- Single database transaction across expense + split creation
-- Easy migration to AWS with a single Gunicorn + RDS setup
+---
 
-The logical boundaries are already clean in the code, making a future microservices migration straightforward.
+## Azure Infrastructure (Terraform — main.tf)
+
+### Resource Overview
+
+| Terraform Resource | Azure Service | Purpose |
+|---|---|---|
+| `azurerm_resource_group` | Resource Group | Container for all resources |
+| `azurerm_virtual_network` | VNet | Isolated network (VPC equivalent) |
+| `azurerm_subnet` (x2) | Subnets | frontend-subnet (public), backend-subnet (private) |
+| `azurerm_network_security_group` (x2) | NSGs | frontend allows HTTP/HTTPS; backend allows VNet only |
+| `azurerm_subnet_network_security_group_association` (x2) | NSG-Subnet link | Attach NSGs to subnets |
+| `azurerm_log_analytics_workspace` | Log Analytics | Central log store (CloudWatch equivalent) |
+| `azurerm_container_registry` | ACR | Docker image registry (ECR equivalent) |
+| `azurerm_kubernetes_cluster` | AKS | Kubernetes cluster with frontend node pool |
+| `azurerm_kubernetes_cluster_node_pool` | AKS Node Pool | Backend node pool in private subnet |
+| `azurerm_role_assignment` (AcrPull) | RBAC | AKS kubelet identity can pull images from ACR |
+| `azurerm_key_vault` | Key Vault | Secrets storage (Secrets Manager equivalent) |
+| `azurerm_postgresql_flexible_server` | Azure PostgreSQL | Managed relational DB (RDS equivalent) |
+| `azurerm_postgresql_flexible_server_firewall_rule` | DB Firewall | Allow AKS VNet to reach PostgreSQL |
+| `azurerm_security_center_subscription_pricing` | Microsoft Defender | Container threat detection (GuardDuty equivalent) |
+| `azurerm_monitor_diagnostic_setting` | Diagnostic Settings | Stream kube-audit logs to Log Analytics (CloudTrail equivalent) |
+| `azurerm_monitor_action_group` | Action Group | Email alert target (SNS Topic equivalent) |
+| `azurerm_monitor_scheduled_query_rules_alert_v2` (x2) | Monitor Alerts | Brute force + scanning detection (CloudWatch Alarms equivalent) |
+
+### AKS Cluster Configuration
+
+```
+AKS Cluster: secure-aks-cluster
+├── Identity: SystemAssigned (Managed Identity)
+├── RBAC: enabled
+├── Network plugin: azure (Azure CNI)
+├── Load balancer SKU: standard
+├── Kubernetes version: 1.29
+├── OMS agent → Log Analytics (container log forwarding)
+├── Microsoft Defender → Log Analytics (threat detection)
+├── frontend node pool → frontend-subnet (public)
+└── backend node pool  → backend-subnet (private)
+```
+
+### Network Security Design
+
+```
+Internet
+   |
+frontend-subnet (10.0.1.0/24)
+   │  NSG: Allow HTTP:80, HTTPS:443 inbound
+   │  AKS Frontend Node Pool + Azure Load Balancer
+   |
+backend-subnet (10.0.2.0/24)
+   │  NSG: Allow VNet (10.0.0.0/16) only — Deny Internet
+   │  AKS Backend Node Pool
+   |
+Azure PostgreSQL Flexible Server
+   └── Firewall: Allow 10.0.0.0–10.0.255.255 only
+```
+
+### AWS → Azure Service Mapping
+
+| AWS Service | Azure Equivalent | Where in main.tf |
+|---|---|---|
+| VPC | Azure Virtual Network | `azurerm_virtual_network` |
+| Security Groups / NACLs | Network Security Groups | `azurerm_network_security_group` |
+| EKS | Azure Kubernetes Service | `azurerm_kubernetes_cluster` |
+| ECR | Azure Container Registry | `azurerm_container_registry` |
+| RDS PostgreSQL | PostgreSQL Flexible Server | `azurerm_postgresql_flexible_server` |
+| Secrets Manager | Azure Key Vault | `azurerm_key_vault` |
+| IRSA | AKS Kubelet Managed Identity + AcrPull role | `azurerm_role_assignment` |
+| CloudWatch Logs | Log Analytics Workspace | `azurerm_log_analytics_workspace` |
+| CloudTrail | AKS Diagnostic Settings (kube-audit) | `azurerm_monitor_diagnostic_setting` |
+| GuardDuty | Microsoft Defender for Containers | `azurerm_security_center_subscription_pricing` |
+| SNS Topic | Azure Monitor Action Group | `azurerm_monitor_action_group` |
+| CloudWatch Alarms | Scheduled Query Alert Rules | `azurerm_monitor_scheduled_query_rules_alert_v2` |
 
 ---
 
-## CS581 Signature Project — Phase Mapping
+## Azure Deployment Steps
 
-| Phase | Requirement | How Spiltwise Covers It |
-|-------|-------------|------------------------|
-| Phase 1 | Architecture Design (VPC, EKS, Load Balancer) | Flask app deployed to EKS inside private subnets, NGINX ingress as load balancer |
-| Phase 2 | EKS Cluster Deployment (eksctl/Terraform) | eksctl cluster config created, IAM node roles configured |
-| Phase 3 | Multi-tier app (Frontend + Backend + DB) | Jinja2 templates (frontend) + Flask API (backend) + RDS PostgreSQL (database) |
-| Phase 4 | IAM roles, RBAC, IRSA | IAM role with least privilege for EKS nodes, Kubernetes RBAC manifests, IRSA for pod-level AWS access |
-| Phase 5 | Network Security (VPC, SGs, NACLs, Network Policies) | Private subnets for worker nodes, security groups restricting ports, Kubernetes NetworkPolicy manifests |
-| Phase 6 | Data Security (encryption, Secrets Manager) | RDS encryption at rest, TLS via NGINX ingress, DB credentials stored in AWS Secrets Manager |
-| Phase 7 | Container Security (non-root, minimal image, ECR scan) | Dockerfile uses python:3.11-slim, runs as non-root user, pushed to ECR with Trivy vulnerability scanning |
-| Phase 8 | Monitoring & Logging (CloudWatch, GuardDuty) | Flask structured JSON logging to CloudWatch, GuardDuty enabled on cluster, Kubernetes audit logs enabled |
-| Phase 9 | Threat Simulation & Mitigation (2+ scenarios) | 3 scenarios implemented — brute force, unauthorized access, log deletion attempt |
+### Prerequisites
+```bash
+az --version        # Azure CLI
+terraform --version # Terraform >= 1.5
+docker --version    # Docker
+kubectl version     # kubectl
+
+az login
+az account set --subscription "<your-subscription-id>"
+```
+
+### Step 1 — Terraform Init & Apply
+```bash
+cd splitwise
+terraform init
+
+export TF_VAR_db_password="YourStrongP@ssword123!"
+terraform plan
+terraform apply
+```
+
+### Step 2 — Build & Push Docker Image
+
+`Dockerfile`:
+```dockerfile
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt gunicorn psycopg2-binary
+COPY . .
+RUN useradd -m appuser && chown -R appuser /app
+USER appuser
+EXPOSE 5000
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "app:app"]
+```
+
+```bash
+ACR_SERVER=$(terraform output -raw acr_login_server)
+az acr login --name $ACR_SERVER
+docker build -t $ACR_SERVER/splitwise:latest .
+docker push $ACR_SERVER/splitwise:latest
+```
+
+### Step 3 — Connect kubectl to AKS
+```bash
+AKS_NAME=$(terraform output -raw aks_cluster_name)
+az aks get-credentials --resource-group secure-aks-rg --name $AKS_NAME
+kubectl get nodes
+```
+
+### Step 4 — Store Secrets in Key Vault
+```bash
+az keyvault secret set --vault-name splitwise-kv-<suffix> \
+  --name db-password --value "YourStrongP@ssword123!"
+
+az keyvault secret set --vault-name splitwise-kv-<suffix> \
+  --name secret-key --value "your_flask_secret_key_here"
+```
+
+### Step 5 — Deploy to Kubernetes
+
+`k8s-deployment.yaml`:
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: splitwise
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: splitwise
+  template:
+    metadata:
+      labels:
+        app: splitwise
+    spec:
+      containers:
+      - name: splitwise
+        image: <acr_login_server>/splitwise:latest
+        ports:
+        - containerPort: 5000
+        env:
+        - name: DATABASE_URL
+          value: "postgresql://splitwiseadmin:<password>@<postgresql_host>:5432/spiltwise"
+        - name: SECRET_KEY
+          value: "<your_secret_key>"
+        securityContext:
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: splitwise-svc
+spec:
+  type: LoadBalancer
+  selector:
+    app: splitwise
+  ports:
+  - port: 80
+    targetPort: 5000
+```
+
+```bash
+kubectl apply -f k8s-deployment.yaml
+kubectl get svc splitwise-svc   # wait ~2 min for EXTERNAL-IP
+```
+
+### Step 6 — Create the PostgreSQL Database
+```bash
+DB_HOST=$(terraform output -raw postgresql_host)
+
+psql "host=$DB_HOST port=5432 dbname=postgres \
+  user=splitwiseadmin password=<password> sslmode=require"
+
+# Inside psql:
+CREATE DATABASE spiltwise;
+\q
+# SQLAlchemy creates all tables on first app startup
+```
+
+### Step 7 — Verify Monitoring
+```bash
+# Query Log Analytics for container logs
+az monitor log-analytics query \
+  --workspace <workspace-id> \
+  --analytics-query "ContainerLog | take 10"
+
+# Microsoft Defender — Azure Portal:
+# Defender for Cloud → Workload Protections → Containers
+```
+
+---
+
+## CS581 Signature Project — Phase Mapping (Azure)
+
+| Phase | Requirement | AWS (original) | Azure (implemented) |
+|-------|-------------|----------------|---------------------|
+| Phase 1 | Architecture Design (network + cluster + load balancer) | VPC + EKS + ELB | VNet + AKS + Azure Standard Load Balancer |
+| Phase 2 | Cluster Deployment (IaC) | eksctl / Terraform | Terraform `azurerm_kubernetes_cluster` |
+| Phase 3 | Multi-tier app (Frontend + Backend + DB) | Flask + RDS PostgreSQL | Flask on AKS + Azure PostgreSQL Flexible Server |
+| Phase 4 | IAM roles, RBAC, IRSA | IAM + EKS RBAC + IRSA | AKS SystemAssigned Managed Identity + AcrPull RBAC role |
+| Phase 5 | Network Security (SGs, NACLs, Network Policies) | VPC SGs + NACLs | NSGs on frontend/backend subnets, DB firewall rule |
+| Phase 6 | Data Security (encryption, secrets) | RDS encryption + Secrets Manager | PostgreSQL (encrypted at rest by default) + Azure Key Vault |
+| Phase 7 | Container Security (non-root, minimal image, registry scan) | ECR + Trivy scan | ACR Standard (built-in vulnerability scanning) + non-root Dockerfile |
+| Phase 8 | Monitoring & Logging | CloudWatch + GuardDuty | Log Analytics + Microsoft Defender for Containers + kube-audit diagnostic settings |
+| Phase 9 | Threat Simulation & Mitigation | CloudWatch Alarms + EventBridge + SNS | Azure Monitor Scheduled Query Alerts + Action Group (email) |
+
+---
+
+## Security Implementation
+
+### File: `security.py`
+
+All application-level security detection logic lives in `security.py`.
+
+| Function | Purpose |
+|---|---|
+| `log_security_event()` | Logs structured JSON to stdout → captured by AKS OMS agent → flows to Log Analytics → triggers Azure Monitor alerts |
+| `record_failed_login(ip, email)` | Tracks failed logins per IP. Triggers `BRUTE_FORCE_DETECTED` after 5 failures in 5 minutes |
+| `is_ip_blocked(ip)` | Returns True if IP has exceeded login failure threshold |
+| `clear_failed_logins(ip)` | Resets failed login count on successful login |
+| `record_unauthorized_access(ip, route, method)` | Logs unauthorized route access. Triggers `SCANNING_DETECTED` after 10 hits in 1 minute |
+| `check_suspicious_payment(user_id, amount, to_user)` | Blocks and logs payments exceeding $5,000 |
+
+### Key Change from AWS Version
+The original `security.py` used `boto3` (AWS SDK) to call SNS directly from the app. In the Azure version:
+- `boto3` and SNS calls have been **removed**
+- The app logs structured JSON to **stdout only**
+- AKS picks up stdout via the **OMS agent** and ships it to **Log Analytics**
+- **Azure Monitor Scheduled Query Alert rules** (defined in `main.tf`) query Log Analytics every 1–5 minutes and fire email alerts via the Action Group when `BRUTE_FORCE_DETECTED` or `SCANNING_DETECTED` appears
+
+This is cleaner: the app has zero cloud-SDK dependency; alerting is entirely infrastructure-managed.
+
+### Integration Points in `app.py`
+
+| Route / Function | Security Check Added |
+|---|---|
+| `login_required` decorator | Calls `record_unauthorized_access()` on every unauthenticated request |
+| `login()` route | Calls `is_ip_blocked()` before processing, `record_failed_login()` on failure, `clear_failed_logins()` on success |
+| `send_payment()` route | Calls `check_suspicious_payment()` before processing the transaction |
+
+### Environment Variables Required
+
+| Variable | Purpose |
+|---|---|
+| `SECRET_KEY` | Flask session signing key |
+| `DATABASE_URL` | Azure PostgreSQL connection string |
+
+> SNS_TOPIC_ARN and AWS_DEFAULT_REGION are no longer required — alerting is handled entirely by Azure Monitor.
+
+### Log Format (JSON)
+
+Every security event is logged as structured JSON to stdout:
+```json
+{
+  "timestamp": "2025-04-12T10:30:00Z",
+  "service": "spiltwise",
+  "event_type": "BRUTE_FORCE_DETECTED",
+  "severity": "CRITICAL",
+  "details": {
+    "ip": "203.0.113.45",
+    "email": "victim@example.com",
+    "attempts_in_window": 6,
+    "action": "IP blocked from further login attempts"
+  }
+}
+```
 
 ---
 
@@ -329,10 +600,10 @@ The logical boundaries are already clean in the code, making a future microservi
 - Flask security middleware tracks failed login attempts per IP
 - After 5 failures within 5 minutes, threshold is exceeded
 
-**What happens:**
-- Event `BRUTE_FORCE_DETECTED` logged as structured JSON to CloudWatch
-- AWS SNS sends an email alert immediately
-- IP is blocked from further login attempts
+**What happens (Azure):**
+- Event `BRUTE_FORCE_DETECTED` logged as structured JSON → stdout → Log Analytics
+- Azure Monitor Scheduled Query Alert (`brute-force-detection` rule, 5-min window) fires
+- Action Group sends email alert to configured address
 
 **Log entry example:**
 ```json
@@ -363,9 +634,10 @@ The logical boundaries are already clean in the code, making a future microservi
 - Security middleware logs the attempt with IP and route
 - If the same IP hits 10+ protected routes within a minute, route scanning is flagged
 
-**What happens:**
-- Event `UNAUTHORIZED_ACCESS` logged to CloudWatch
-- If scanning threshold hit, `SCANNING_DETECTED` fires and SNS alert is sent
+**What happens (Azure):**
+- Event `UNAUTHORIZED_ACCESS` logged to Log Analytics
+- If scanning threshold hit, `SCANNING_DETECTED` fires
+- Azure Monitor Scheduled Query Alert (`scanning-detection` rule, 1-min window) fires email via Action Group
 
 **Log entry example:**
 ```json
@@ -384,145 +656,250 @@ The logical boundaries are already clean in the code, making a future microservi
 
 ---
 
-### Scenario 3 — Log Deletion / Audit Tampering (AWS-Level)
+### Scenario 3 — Log Deletion / Audit Tampering (Azure-Level)
 
-**What it is:** An attacker with stolen or overprivileged AWS credentials attempts to delete CloudWatch logs or disable CloudTrail to cover their tracks — a classic anti-forensics technique used in real-world breaches.
+**What it is:** An attacker with stolen credentials attempts to delete Log Analytics data or disable diagnostic settings to cover their tracks.
 
 **How it is simulated:**
 ```bash
-# Disable CloudTrail logging
-aws cloudtrail stop-logging --name spiltwise-trail
+# Disable AKS diagnostic settings via Azure CLI
+az monitor diagnostic-settings delete \
+  --name aks-diagnostics \
+  --resource <aks-resource-id>
 
-# Delete CloudWatch log group
-aws logs delete-log-group --log-group-name /spiltwise/app
+# Attempt to delete Log Analytics workspace
+az monitor log-analytics workspace delete \
+  --resource-group secure-aks-rg \
+  --workspace-name aks-log-workspace
 ```
 
 **How it is detected:**
-- AWS GuardDuty raises finding: `Stealth:IAMUser/CloudTrailLoggingDisabled`
-- CloudTrail records the API call (`StopLogging`, `DeleteLogGroup`, `DeleteTrail`)
-- CloudWatch Alarm fires on these specific API events
+- **Microsoft Defender for Cloud** raises an alert for suspicious management-plane activity
+- **Azure Activity Log** records every ARM API call permanently (equivalent to CloudTrail)
+- Azure Monitor can be configured to alert on `microsoft.operationalinsights/workspaces/delete` events
 
-**What happens:**
-- GuardDuty finding appears in AWS console within minutes
-- CloudWatch alarm triggers SNS email: "CRITICAL: Someone attempted to delete audit logs"
-- The attempt is permanently recorded in CloudTrail (protected by S3 versioning + MFA delete)
+**Azure Defender Alerts triggered:**
 
-**GuardDuty Findings triggered:**
+| Alert | Trigger |
+|-------|---------|
+| `Suspicious management activity` | Diagnostic settings deleted |
+| `Privileged container detected` | Unauthorized kubectl exec into privileged pod |
+| `Unusual deletion activity` | Log workspace or diagnostic setting removed |
 
-| Finding | Trigger |
-|---------|---------|
-| `Stealth:IAMUser/CloudTrailLoggingDisabled` | `StopLogging` or `DeleteTrail` API call |
-| `Stealth:IAMUser/LogAggregationDisabled` | CloudWatch log aggregation disabled |
-| `UnauthorizedAccess:IAMUser/ConsoleLogin` | Unusual console login from new IP |
-
-**Why this is powerful:** Even if an attacker deletes logs, the deletion event itself is permanently recorded in CloudTrail. With S3 versioning and MFA-delete enabled on the CloudTrail S3 bucket, logs cannot be removed without MFA, creating a tamper-proof audit trail.
+**Why this is powerful:** The Azure Activity Log is immutable from within the subscription — deleting it requires elevated portal access. With Azure Policy + Resource Locks (`CanNotDelete`) on the Log Analytics workspace, deletion is blocked entirely.
 
 ---
 
-## Security Notification Flow
+### Scenario 4 — Azure Monitor + Action Group Alert Pipeline (Infrastructure-Level)
 
+**What it is:** Any suspicious app-level event captured in Log Analytics automatically triggers an email alert via Azure Monitor — completely independent of the Flask app. Works even if the app is down or compromised.
+
+**How it works:**
 ```
-Security Event Occurs (app or AWS level)
-               |
-  Flask middleware / GuardDuty detects it
-               |
-    Structured JSON log written
-               |
-       CloudWatch Log Group (/spiltwise/security)
-               |
-    CloudWatch Metric Filter (matches CRITICAL severity)
-               |
-      CloudWatch Alarm triggers
-               |
-           AWS SNS Topic
-          /              \
-    Email Alert        SMS Alert
-   (Professor)         (Professor)
+App logs JSON to stdout
+       |
+  AKS OMS Agent
+       |
+  Log Analytics Workspace
+       |
+  Azure Monitor Scheduled Query Alert
+  (queries ContainerLog every 1–5 min)
+       |
+  Action Group
+      / \
+  Email  (extensible to SMS, webhook, Teams)
 ```
 
-**Events that trigger immediate SNS notification:**
+**Alert rules wired in main.tf:**
+
+| Rule | Query | Window | Severity |
+|---|---|---|---|
+| `brute-force-detection` | `ContainerLog \| where LogEntry contains "BRUTE_FORCE_DETECTED"` | PT5M | 0 (Critical) |
+| `scanning-detection` | `ContainerLog \| where LogEntry contains "SCANNING_DETECTED"` | PT1M | 0 (Critical) |
+
+**Suspicious events covered:**
 
 | Event | Trigger Condition |
 |-------|-------------------|
 | `BRUTE_FORCE_DETECTED` | 5+ failed logins from same IP within 5 minutes |
 | `SCANNING_DETECTED` | 10+ unauthorized route hits from same IP in 1 minute |
-| `SUSPICIOUS_TRANSACTION` | Payment amount exceeds $5000 |
-| `SIGNUP_ABUSE_DETECTED` | 3+ accounts created from same IP |
-| `SQL_INJECTION_ATTEMPT` | Suspicious pattern detected in form input |
-| `Stealth:IAMUser/CloudTrailLoggingDisabled` | Log deletion attempt detected by GuardDuty |
+| `SUSPICIOUS_TRANSACTION` | Payment amount exceeds $5,000 |
 
 ---
 
-### Scenario 4 — AWS CloudWatch + EventBridge + SNS Pipeline (Infrastructure-Level)
-
-**What it is:** Any suspicious AWS API activity is automatically captured by CloudTrail, filtered by EventBridge rules, and routed as a real-time alert via SNS — completely independent of the Flask application. Works even if the app is down or compromised.
-
-**How it works:**
+## Security Notification Flow (Azure)
 
 ```
-Any AWS API Call
-       |
-  CloudTrail (records every API call permanently)
-       |
-  EventBridge Rule (filters for suspicious events)
-       |
-  SNS Topic
-      / \
-Email   SMS
-  +
-CloudWatch Log (permanent record)
+Security Event Occurs (app or Azure level)
+               |
+  Flask middleware / Microsoft Defender detects it
+               |
+    Structured JSON log written to stdout
+               |
+       AKS OMS Agent ships to Log Analytics
+               |
+    Azure Monitor Scheduled Query Alert
+    (matches CRITICAL events every 1–5 min)
+               |
+         Action Group fires
+          /              \
+    Email Alert        (extensible: SMS, Teams, Webhook)
 ```
 
-**Suspicious events wired up via EventBridge:**
+---
 
-| Suspicious Action | EventBridge Rule Catches |
+## Deployment Status & Next Steps
+
+### What's Done
+
+| Item | Status |
 |---|---|
-| AWS Console login from unknown IP without MFA | `ConsoleLogin` with `MFAUsed = No` |
-| New IAM user created (unauthorized provisioning) | `CreateUser` API call |
-| Security group opened port 22 or 3389 (SSH/RDP exposed) | `AuthorizeSecurityGroupIngress` |
-| S3 bucket made public (data exposure risk) | `PutBucketAcl` with public access |
-| EC2 instance launched in unexpected region | `RunInstances` outside configured region |
-| Root account used (highest privilege, should never be used) | `userIdentity.type = Root` |
-| CloudTrail logging disabled | `StopLogging` or `DeleteTrail` |
+| `app.py` — Flask application | Complete |
+| `security.py` — Azure-native security middleware (boto3/SNS removed) | Complete |
+| `main.tf` — Full Azure Terraform infrastructure | Complete |
+| `DETAILING.md` — Documentation with Azure phase mapping | Complete |
+| HTML templates | Complete |
 
-**How to demo it:**
-1. Create EventBridge rule matching `ConsoleLogin` without MFA
-2. Log into AWS console without MFA enabled
-3. Within 60 seconds — SNS fires email: *"IAM login detected without MFA on your AWS account"*
-4. CloudWatch logs show the full event JSON permanently
+### What's Missing (Blocking Deployment)
 
-**Sample EventBridge rule (JSON):**
-```json
-{
-  "source": ["aws.signin"],
-  "detail-type": ["AWS Console Sign In via CloudTrail"],
-  "detail": {
-    "additionalEventData": {
-      "MFAUsed": ["No"]
-    }
-  }
-}
+Three files do not exist yet and are required before anything can deploy:
+
+| File | Status | Why it's blocking |
+|---|---|---|
+| `Dockerfile` | Missing | Can't build/push image to ACR without it |
+| `k8s-deployment.yaml` | Missing | Can't deploy to AKS without it |
+| `requirements.txt` | Incomplete — missing `gunicorn`, `psycopg2-binary` | Docker build will fail — no WSGI server, no PostgreSQL driver |
+
+---
+
+### Ordered Next Steps
+
+#### Step 1 — Fix `requirements.txt`
+Add `gunicorn` and `psycopg2-binary`. Without these the Docker image can't run on AKS or connect to Azure PostgreSQL.
+
+#### Step 2 — Create `Dockerfile`
+Non-root user, slim image, Gunicorn entrypoint. Covers **Phase 7** (container security).
+
+```dockerfile
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt gunicorn psycopg2-binary
+COPY . .
+RUN useradd -m appuser && chown -R appuser /app
+USER appuser
+EXPOSE 5000
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "app:app"]
 ```
 
-**Sample SNS alert received:**
-```
-Subject: [Spiltwise Security] CRITICAL: Console Login Without MFA
+#### Step 3 — Create `k8s-deployment.yaml`
+Deployment + Service manifest for AKS. Covers **Phase 1** (load balancer) and **Phase 3** (multi-tier).
 
-Severity: CRITICAL
-Event: ConsoleLogin without MFA
-Time: 2025-04-12T10:45:00Z
-Account: 123456789012
-User: arn:aws:iam::123456789012:user/admin
-Source IP: 203.0.113.45
-Region: us-east-1
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: splitwise
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: splitwise
+  template:
+    metadata:
+      labels:
+        app: splitwise
+    spec:
+      containers:
+      - name: splitwise
+        image: <acr_login_server>/splitwise:latest
+        ports:
+        - containerPort: 5000
+        env:
+        - name: DATABASE_URL
+          value: "postgresql://splitwiseadmin:<password>@<postgresql_host>:5432/spiltwise"
+        - name: SECRET_KEY
+          value: "<your_secret_key>"
+        securityContext:
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: splitwise-svc
+spec:
+  type: LoadBalancer
+  selector:
+    app: splitwise
+  ports:
+  - port: 80
+    targetPort: 5000
 ```
 
-**Why this is impressive:**
-- Purely AWS configuration — no code required
-- Infrastructure-level monitoring independent of the application
-- Root account detection is a real-world compliance requirement (SOC2, PCI-DSS, HIPAA)
-- Covers Phase 8 (Monitoring & Logging) and Phase 9 (Threat Detection) simultaneously
-- Demonstrates defense-in-depth — security at both application and infrastructure layers
+#### Step 4 — Run Terraform
+Provisions everything: AKS, ACR, PostgreSQL, Key Vault, Log Analytics, Defender, Monitor alerts.
+
+```bash
+az login
+terraform init
+export TF_VAR_db_password="YourStrongP@ssword123!"
+terraform plan
+terraform apply
+```
+
+#### Step 5 — Build & Push Docker Image to ACR
+
+```bash
+ACR_SERVER=$(terraform output -raw acr_login_server)
+az acr login --name $ACR_SERVER
+docker build -t $ACR_SERVER/splitwise:latest .
+docker push $ACR_SERVER/splitwise:latest
+```
+
+#### Step 6 — Create PostgreSQL Database
+
+```bash
+psql "host=$(terraform output -raw postgresql_host) port=5432 \
+  dbname=postgres user=splitwiseadmin password=<pw> sslmode=require"
+
+# Inside psql:
+CREATE DATABASE spiltwise;
+\q
+# SQLAlchemy creates all tables automatically on first app startup
+```
+
+#### Step 7 — Deploy to AKS
+
+```bash
+az aks get-credentials --resource-group secure-aks-rg \
+  --name $(terraform output -raw aks_cluster_name)
+
+kubectl apply -f k8s-deployment.yaml
+kubectl get svc splitwise-svc   # wait ~2 min for EXTERNAL-IP
+```
+
+#### Step 8 — Demo Security Scenarios (Phase 9)
+Once the app is live, run these to trigger and verify alerts:
+
+| Scenario | How to trigger | What to check |
+|---|---|---|
+| Brute force | Hit `/login` 5+ times with wrong password | Log Analytics: `BRUTE_FORCE_DETECTED` + email alert fires |
+| Route scanning | Hit `/dashboard`, `/wallet`, `/expenses` 10+ times without a session cookie | Log Analytics: `SCANNING_DETECTED` log appears |
+| Suspicious transaction | Send a payment > $5,000 via the app | Log Analytics: `SUSPICIOUS_TRANSACTION` log appears |
+
+#### Step 9 — Verify Monitoring Pipeline (Phase 8)
+
+```bash
+# Confirm logs are flowing to Log Analytics
+az monitor log-analytics query \
+  --workspace <workspace-id> \
+  --analytics-query "ContainerLog | where LogEntry contains 'spiltwise' | take 10"
+```
+
+Azure Portal checks:
+- **Defender for Cloud** → Workload Protections → Containers → verify cluster is protected
+- **Monitor** → Alerts → confirm `brute-force-detection` and `scanning-detection` rules are active
 
 ---
 
@@ -531,6 +908,8 @@ Region: us-east-1
 ```
 spiltwise/
 ├── app.py                  # Main Flask application
+├── security.py             # Security middleware (Azure-native logging)
+├── main.tf                 # Terraform — full Azure infrastructure
 ├── requirements.txt        # Python dependencies
 ├── .env                    # Environment variables (not committed)
 ├── .env.example            # Example env config
@@ -551,61 +930,8 @@ spiltwise/
     └── js/                 # JavaScript files
 ```
 
----
 
-## Security Implementation (Pre-Deployment Code)
+Added a new "Deployment Status & Next Steps" section to DETAILING.md right before the Project Structure section. It includes:
 
-All application-level security is implemented in `security.py` and integrated into `app.py`.
-
-### File: `security.py`
-
-| Function | Purpose |
-|---|---|
-| `log_security_event()` | Logs structured JSON to stdout → captured by CloudWatch. Sends SNS alert if `notify=True` |
-| `record_failed_login(ip, email)` | Tracks failed logins per IP. Triggers `BRUTE_FORCE_DETECTED` after 5 failures in 5 minutes |
-| `is_ip_blocked(ip)` | Returns True if IP has exceeded login failure threshold |
-| `clear_failed_logins(ip)` | Resets failed login count on successful login |
-| `record_unauthorized_access(ip, route, method)` | Logs unauthorized route access. Triggers `SCANNING_DETECTED` after 10 hits in 1 minute |
-| `check_suspicious_payment(user_id, amount, to_user)` | Blocks and logs payments exceeding $5,000 |
-
-### Integration Points in `app.py`
-
-| Route / Function | Security Check Added |
-|---|---|
-| `login_required` decorator | Calls `record_unauthorized_access()` on every unauthenticated request |
-| `login()` route | Calls `is_ip_blocked()` before processing, `record_failed_login()` on failure, `clear_failed_logins()` on success |
-| `send_payment()` route | Calls `check_suspicious_payment()` before processing the transaction |
-
-### SNS Events Implemented
-
-| Event | Trigger Condition | Status |
-|-------|-------------------|--------|
-| `BRUTE_FORCE_DETECTED` | 5+ failed logins from same IP within 5 minutes | Implemented in `security.py` |
-| `SCANNING_DETECTED` | 10+ unauthorized route hits from same IP in 1 minute | Implemented in `security.py` |
-| `SUSPICIOUS_TRANSACTION` | Payment amount exceeds $5,000 | Implemented in `security.py` |
-| `Stealth:IAMUser/CloudTrailLoggingDisabled` | Log deletion attempt | After deployment via GuardDuty + EventBridge |
-
-### Environment Variables Required
-
-| Variable | Purpose |
-|---|---|
-| `SNS_TOPIC_ARN` | ARN of AWS SNS topic to send alerts to (set after deployment) |
-| `AWS_DEFAULT_REGION` | AWS region where SNS topic is created (e.g. `us-east-1`) |
-
-### Log Format (JSON)
-
-Every security event is logged as structured JSON to stdout:
-```json
-{
-  "timestamp": "2025-04-12T10:30:00Z",
-  "service": "spiltwise",
-  "event_type": "BRUTE_FORCE_DETECTED",
-  "severity": "CRITICAL",
-  "details": {
-    "ip": "203.0.113.45",
-    "email": "victim@example.com",
-    "attempts_in_window": 6,
-    "action": "IP blocked from further login attempts"
-  }
-}
-```
+  - What's Done table — current completed items                                                                                                                                                                                                 - What's Missing table — the 3 blocking files (Dockerfile, k8s-deployment.yaml, incomplete requirements.txt)
+  - Steps 1–9 in order — each with the exact commands, covering file creation → Terraform → Docker → AKS deploy → Phase 9 demo → Phase 8 monitoring verification 
