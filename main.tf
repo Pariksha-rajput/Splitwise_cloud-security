@@ -216,7 +216,6 @@ resource "azurerm_key_vault" "kv" {
   tenant_id           = data.azurerm_client_config.current.tenant_id
   sku_name            = "standard"
 
-  # AKS cluster managed identity can read secrets
   access_policy {
     tenant_id = data.azurerm_client_config.current.tenant_id
     object_id = azurerm_kubernetes_cluster.aks.identity[0].principal_id
@@ -224,7 +223,6 @@ resource "azurerm_key_vault" "kv" {
     secret_permissions = ["Get", "List"]
   }
 
-  # Deployer (you) can manage secrets
   access_policy {
     tenant_id = data.azurerm_client_config.current.tenant_id
     object_id = data.azurerm_client_config.current.object_id
@@ -244,7 +242,6 @@ resource "azurerm_postgresql_flexible_server" "db" {
   storage_mb             = 32768
   sku_name               = "B_Standard_B1ms"
   backup_retention_days  = 7
-  # Encryption at rest enabled by default on Azure PostgreSQL
 }
 
 # Allow AKS VNet to reach PostgreSQL
@@ -295,9 +292,9 @@ resource "azurerm_monitor_action_group" "security_alerts" {
 
 # ── Alert: Brute Force (Phase 9 — CloudWatch Alarm equivalent) ────────────────
 resource "azurerm_monitor_scheduled_query_rules_alert_v2" "brute_force_alert" {
-  name                = "brute-force-detection"
-  resource_group_name = azurerm_resource_group.rg.name
-  location            = azurerm_resource_group.rg.location
+  name                 = "brute-force-detection"
+  resource_group_name  = azurerm_resource_group.rg.name
+  location             = azurerm_resource_group.rg.location
   evaluation_frequency = "PT5M"
   window_duration      = "PT5M"
   scopes               = [azurerm_log_analytics_workspace.log.id]
