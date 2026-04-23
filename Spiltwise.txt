@@ -1,0 +1,69 @@
+	   		                                                  Spiltwise
+
+									
+Microservices-
+
+
+1. User Service
+Signup / Login (JWT auth)
+
+2. Expense Service
+Create expense
+Split logic (equal/custom)
+Store transactions
+
+3. Balance Service
+Calculate who owes whom
+Net balances between users
+
+4. Payment Service (Mock Fintech)
+Simulate payments
+Mark debts as settled
+Maintain payment history
+
+5. Notification Service
+Alerts when:
+Expense added
+Payment received
+
+
+Extra features-
+
+
+
+6. Smart Debt Simplification (Big Differentiator)
+
+Instead of:
+
+A owes B
+B owes C
+
+Your system:
+
+Automatically simplifies to:
+A pays C directly
+
+Shows graph optimization logic
+Very interview-impressive
+
+7. Financial Insights Dashboard
+
+Add:
+
+Monthly spending trends
+Category breakdown (food, rent, travel)
+“Who you spend most with”
+
+Splitwise is tracking
+You add analytics (fintech layer)
+
+
+8. Wallet System
+
+Each user has:
+
+Balance
+Internal transfers
+
+Now it's not just “splitting”
+It becomes a mini digital banking system
