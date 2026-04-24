@@ -19,7 +19,7 @@ provider "azurerm" {
   }
 }
 
-# ── Random suffix for globally unique names like ACR, DB ────────────────────────────────────
+# ── Random suffix for globally unique names ────────────────────────────────────
 resource "random_string" "suffix" {
   length  = 6
   special = false

@@ -1,13 +1,12 @@
 import logging
 import json
-import os
 from datetime import datetime
 from collections import defaultdict
 from threading import Lock
 from time import time
 
 # ── Structured Security Logger ────────────────────────────────────────────────
-security_logger = logging.getLogger("fairsplit.security")
+security_logger = logging.getLogger("spiltwise.security")
 security_logger.setLevel(logging.INFO)
 handler = logging.StreamHandler()
 handler.setFormatter(logging.Formatter("%(message)s"))
@@ -21,9 +20,6 @@ SCANNING_THRESHOLD     = 10     # unauthorized hits before flagging
 SCANNING_WINDOW        = 60     # within 1 minute
 SUSPICIOUS_AMOUNT      = 5000   # flag payments above $5000
 
-SNS_TOPIC_ARN = os.getenv("SNS_TOPIC_ARN", "")
-AWS_REGION    = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
-
 # ── In-memory trackers (thread-safe) ─────────────────────────────────────────
 failed_logins = defaultdict(list)
 route_scans   = defaultdict(list)
@@ -31,11 +27,11 @@ _lock         = Lock()
 
 # ── Core logging function ─────────────────────────────────────────────────────
 
-def log_security_event(event_type, details, severity="WARNING", notify=False):
-    """Log structured JSON security event. Flows to CloudWatch in production."""
+def log_security_event(event_type, details, severity="WARNING"):
+    """Log structured JSON security event to stdout — captured by AKS OMS agent → Log Analytics."""
     event = {
         "timestamp":  datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "service":    "fairsplit",
+        "service":    "spiltwise",
         "event_type": event_type,
         "severity":   severity,
         "details":    details,
@@ -46,33 +42,6 @@ def log_security_event(event_type, details, severity="WARNING", notify=False):
         security_logger.critical(msg)
     else:
         security_logger.warning(msg)
-
-    if notify and SNS_TOPIC_ARN:
-        _send_sns_alert(event_type, details, severity)
-
-
-def _send_sns_alert(event_type, details, severity):
-    """Send SNS email/SMS alert — fires after AWS deployment."""
-    try:
-        import boto3
-        sns = boto3.client("sns", region_name=AWS_REGION)
-        message = (
-            f"SECURITY ALERT — Fairsplit\n"
-            f"Severity : {severity}\n"
-            f"Event    : {event_type}\n"
-            f"Time     : {datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')}\n"
-            f"Details  :\n{json.dumps(details, indent=2)}"
-        )
-        sns.publish(
-            TopicArn=SNS_TOPIC_ARN,
-            Subject=f"[Fairsplit Security] {severity}: {event_type}",
-            Message=message,
-        )
-    except Exception as e:
-        security_logger.error(json.dumps({
-            "event_type": "SNS_NOTIFICATION_FAILED",
-            "error": str(e)
-        }))
 
 
 # ── Scenario 1: Brute Force Detection ────────────────────────────────────────
@@ -98,7 +67,7 @@ def record_failed_login(ip, email):
             "email":              email,
             "attempts_in_window": count,
             "action":             "IP blocked from further login attempts",
-        }, severity="CRITICAL", notify=True)
+        }, severity="CRITICAL")
         return True
     return False
 
@@ -139,7 +108,7 @@ def record_unauthorized_access(ip, route, method):
             "ip":             ip,
             "hits_in_window": count,
             "action":         "Possible automated route scanning detected",
-        }, severity="CRITICAL", notify=True)
+        }, severity="CRITICAL")
 
 
 # ── Scenario 3: Suspicious Transaction ───────────────────────────────────────
@@ -153,6 +122,6 @@ def check_suspicious_payment(user_id, amount, to_user):
             "amount":    amount,
             "threshold": SUSPICIOUS_AMOUNT,
             "action":    "Transaction blocked — exceeds limit",
-        }, severity="CRITICAL", notify=True)
+        }, severity="CRITICAL")
         return True
     return False
