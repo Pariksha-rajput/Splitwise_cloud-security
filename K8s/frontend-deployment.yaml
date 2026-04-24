@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: splitwise
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+      - name: frontend
+        image:                #Need to add front end image name here
+        ports:
+        - containerPort: 80
+        securityContext:
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
