@@ -375,6 +375,16 @@ Azure PostgreSQL Flexible Server
 
 ## Azure Deployment Steps
 
+### Deployment Order
+
+```
+Terraform (infra) → Docker build → Push to ACR → Deploy to AKS
+```
+
+Terraform must run first — it creates ACR (needed to push the image), AKS (needed to run it), and PostgreSQL (needed by the app).
+
+---
+
 ### Prerequisites
 ```bash
 az --version        # Azure CLI
@@ -386,24 +396,41 @@ az login
 az account set --subscription "<your-subscription-id>"
 ```
 
+---
+
 ### Step 1 — Terraform Init & Apply
 ```bash
-cd splitwise
+cd "Splitwise_cloud-security"
 terraform init
 
+# Set a strong DB password — used by PostgreSQL and Key Vault
 export TF_VAR_db_password="YourStrongP@ssword123!"
-terraform plan
-terraform apply
+
+terraform plan    # review what will be created
+terraform apply   # takes ~10-15 minutes
 ```
 
-### Step 2 — Build & Push Docker Image
+Terraform provisions: Resource Group, VNet, NSGs, Log Analytics, ACR, AKS (frontend + backend node pools), AKS→ACR role, Key Vault, PostgreSQL, Microsoft Defender, Diagnostic Settings, Monitor alert rules.
+
+### Step 2 — Note Terraform Outputs
+```bash
+terraform output acr_login_server   # e.g. splitwiseacrXXXXXX.azurecr.io
+terraform output aks_cluster_name   # secure-aks-cluster
+terraform output postgresql_host    # your-db.postgres.database.azure.com
+```
+
+Use these values in the steps below.
+
+---
+
+### Step 3 — Build & Push Docker Image
 
 `Dockerfile`:
 ```dockerfile
 FROM python:3.11-slim
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt gunicorn psycopg2-binary
+RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 RUN useradd -m appuser && chown -R appuser /app
 USER appuser
@@ -418,23 +445,31 @@ docker build -t $ACR_SERVER/splitwise:latest .
 docker push $ACR_SERVER/splitwise:latest
 ```
 
-### Step 3 — Connect kubectl to AKS
+---
+
+### Step 4 — Connect kubectl to AKS
 ```bash
 AKS_NAME=$(terraform output -raw aks_cluster_name)
 az aks get-credentials --resource-group secure-aks-rg --name $AKS_NAME
 kubectl get nodes
 ```
 
-### Step 4 — Store Secrets in Key Vault
+---
+
+### Step 5 — Store Secrets in Key Vault
 ```bash
-az keyvault secret set --vault-name splitwise-kv-<suffix> \
+KV_NAME=$(terraform output -raw key_vault_uri | sed 's|https://||;s|/||')
+
+az keyvault secret set --vault-name $KV_NAME \
   --name db-password --value "YourStrongP@ssword123!"
 
-az keyvault secret set --vault-name splitwise-kv-<suffix> \
+az keyvault secret set --vault-name $KV_NAME \
   --name secret-key --value "your_flask_secret_key_here"
 ```
 
-### Step 5 — Deploy to Kubernetes
+---
+
+### Step 6 — Deploy to Kubernetes
 
 `k8s-deployment.yaml`:
 ```yaml
