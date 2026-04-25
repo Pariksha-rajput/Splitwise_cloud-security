@@ -1,0 +1,32 @@
+#Access Control- implemented least privilege using Kubernetes RBAC
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: backend-sa
+  namespace: splitwise
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: backend-role
+  namespace: splitwise
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]   # only get and list pod options are enabled. Create, delete and update are disabled.
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: backend-binding
+  namespace: splitwise
+subjects:
+- kind: ServiceAccount
+  name: backend-sa
+roleRef:
+  kind: Role
+  name: backend-role
+  apiGroup: rbac.authorization.k8s.io
