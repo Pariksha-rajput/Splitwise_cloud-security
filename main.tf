@@ -266,7 +266,7 @@ resource "azurerm_monitor_action_group" "security_alerts" {
 
   email_receiver {
     name          = "security-team"
-    email_address = "pariksha.rajput2912@gmail.com"
+    email_address = "xxxx"
   }
 }
 
