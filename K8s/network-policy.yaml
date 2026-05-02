@@ -1,10 +1,10 @@
-#Network Security- controls traffic between pods, only frontend can access backend pods. other pods does not  have access to the backend pod
+﻿#Network Security- controls traffic between pods, only frontend can access backend pods. other pods does not  have access to the backend pod
 
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: backend-policy
-  namespace: splitwise
+  namespace: fairsplit
 spec:
   podSelector:
     matchLabels:

@@ -1,5 +1,5 @@
-{% extends "base.html" %}
-{% block title %}Expenses · Spiltwise{% endblock %}
+﻿{% extends "base.html" %}
+{% block title %}Expenses Â· Fairsplit{% endblock %}
 {% block content %}
 <div class="page-header animate">
   <div>
@@ -25,7 +25,7 @@
       </tr>
     </thead>
     <tbody>
-      {% set cat_icons = {'Food':'🍕','Travel':'✈️','Rent':'🏠','Entertainment':'🎬','Shopping':'🛍️','General':'💼','Utilities':'💡','Health':'🏥'} %}
+      {% set cat_icons = {'Food':'ðŸ•','Travel':'âœˆï¸','Rent':'ðŸ ','Entertainment':'ðŸŽ¬','Shopping':'ðŸ›ï¸','General':'ðŸ’¼','Utilities':'ðŸ’¡','Health':'ðŸ¥'} %}
       {% for exp in expenses %}
       {% set payer = exp.payer %}
       {% set my_share = (exp.splits | selectattr('user_id', 'equalto', uid) | map(attribute='amount') | list | first) | default(0) %}
@@ -109,3 +109,4 @@ document.querySelectorAll('.settle-btn').forEach(btn => {
 });
 </script>
 {% endblock %}
+

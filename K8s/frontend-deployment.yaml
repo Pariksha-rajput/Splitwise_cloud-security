@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: frontend
-  namespace: splitwise
+  namespace: fairsplit
 spec:
   replicas: 2
   selector:
@@ -15,9 +15,16 @@ spec:
     spec:
       containers:
       - name: frontend
-        image:                #Need to add front end image name here
+        image: nginx:alpine
         ports:
         - containerPort: 80
+        volumeMounts:
+        - name: nginx-config
+          mountPath: /etc/nginx/conf.d/default.conf
+          subPath: default.conf
         securityContext:
-          runAsNonRoot: true
           allowPrivilegeEscalation: false
+      volumes:
+      - name: nginx-config
+        configMap:
+          name: nginx-config

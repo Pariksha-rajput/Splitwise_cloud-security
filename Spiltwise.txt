@@ -1,0 +1,187 @@
+	   		                                                  					Fairsplit
+
+									
+																				Microservices
+
+
+1. User Service
+Signup / Login (JWT auth)
+
+2. Expense Service
+Create expense
+Split logic (equal/custom)
+Store transactions
+
+3. Balance Service
+Calculate who owes whom
+Net balances between users
+
+4. Payment Service (Mock Fintech)
+Simulate payments
+Mark debts as settled
+Maintain payment history
+
+5. Notification Service
+Alerts when:
+Expense added
+Payment received
+
+
+Extra features-
+
+
+
+6. Smart Debt Simplification (Big Differentiator)
+
+Instead of:
+
+A owes B
+B owes C
+
+Your system:
+
+Automatically simplifies to:
+A pays C directly
+
+Shows graph optimization logic
+Very interview-impressive
+
+7. Financial Insights Dashboard
+
+Add:
+
+Monthly spending trends
+Category breakdown (food, rent, travel)
+“Who you spend most with”
+
+Splitwise is tracking
+You add analytics (fintech layer)
+
+
+8. Wallet System
+
+Each user has:
+
+Balance
+Internal transfers
+
+Now it's not just “splitting”
+It becomes a mini digital banking system
+
+																			Security Scenario
+
+																			Security Breach Scenarios:
+
+										
+																	Scenario 1 - Brute Force Attack on Login
+							
+
+
+**What it is:** An attacker repeatedly tries different passwords on the `/login` endpoint to gain unauthorized account access.
+
+**How it is simulated:**
+- Script sends 5+ failed login requests to `/login` from the same IP in under 5 minutes
+
+**How it is detected:**
+- Flask security middleware tracks failed login attempts per IP
+- After 5 failures within 5 minutes, threshold is exceeded
+
+**What happens:**
+- Event `BRUTE_FORCE_DETECTED` logged as structured JSON to CloudWatch
+- AWS SNS sends an email alert immediately
+- IP is blocked from further login attempts
+
+														Scenario 2 — IDOR Attack on Expense Settlement (Transaction Tampering)
+
+**What it is:** An authenticated attacker (Eve) manipulates the settlement URL to mark another user's expense as paid — effectively wiping someone else's debt without actually paying it.
+
+**How it is simulated:**
+- Eve logs in and notices the URL pattern: `POST /expenses/<id>/settle`
+- Eve manually crafts a request targeting expense ID 43, which belongs to Alice and Bob (not Eve)
+- Without protection, Bob's debt to Alice would be erased; Alice loses money
+
+**How it is detected:**
+- `settle_expense` route checks that the logged-in user is in `expense.members`
+- If not, `log_idor_attempt()` in `security.py` fires immediately
+- Event `IDOR_ATTEMPT_DETECTED` is logged as CRITICAL to stdout → OMS agent → Log Analytics
+- Azure Monitor scheduled query alert (`idor-attempt-detection`, 5-min window) triggers → email sent to security team
+
+**What happens:**
+- Eve receives a `403 Forbidden` response — the transaction is blocked
+- Azure Monitor alert fires and an email is sent to `pariksha.rajput2912@gmail.com`
+
+
+Attack scenario (the breach):
+  - Eve (attacker) is also a registered user
+  - Eve logs in and notices the URL pattern: /settle/42
+  - Eve manually changes it to /settle/42, /settle/43, /settle/44... trying to mark OTHER people's debts as paid (wiping their balances without actually paying)
+
+																Scenario 3 — Log Deletion / Audit Tampering
+
+**What it is:** An attacker with stolen or overprivileged AWS credentials attempts to delete CloudWatch logs or disable CloudTrail to cover their tracks — a classic anti-forensics technique used in real-world breaches.
+
+**How it is simulated:**
+```bash
+# Disable CloudTrail logging
+aws cloudtrail stop-logging --name fairsplit-trail
+
+# Delete CloudWatch log group
+aws logs delete-log-group --log-group-name /fairsplit/app
+```
+
+**How it is detected:**
+- AWS GuardDuty raises finding: `Stealth:IAMUser/CloudTrailLoggingDisabled`
+- CloudTrail records the API call (`StopLogging`, `DeleteLogGroup`, `DeleteTrail`)
+- CloudWatch Alarm fires on these specific API events
+
+**What happens:**
+- GuardDuty finding appears in AWS console within minutes
+- CloudWatch alarm triggers SNS email: "CRITICAL: Someone attempted to delete audit logs"
+- The attempt is permanently recorded in CloudTrail (protected by S3 versioning + MFA delete)
+**GuardDuty Findings triggered:**
+
+| Finding | Trigger |
+|---------|---------|
+| `Stealth:IAMUser/CloudTrailLoggingDisabled` | `StopLogging` or `DeleteTrail` API call |
+| `Stealth:IAMUser/LogAggregationDisabled` | CloudWatch log aggregation disabled |
+| `UnauthorizedAccess:IAMUser/ConsoleLogin` | Unusual console login from new IP |
+
+**Why this is powerful:** Even if an attacker deletes logs, the deletion event itself is permanently recorded in CloudTrail. With S3 versioning and MFA-delete enabled on the CloudTrail S3 bucket, logs cannot be removed without MFA, creating a tamper-proof audit trail.
+
+														Scenario 4 — AWS CloudWatch + EventBridge + SNS Pipeline (Infrastructure-Level)
+
+**What it is:** Any suspicious AWS API activity is automatically captured by CloudTrail, filtered by EventBridge rules, and routed as a real-time alert via SNS — completely independent of the Flask application. Works even if the app is down or compromised.
+
+**How it works:**
+
+```
+Any AWS API Call
+       |
+  CloudTrail (records every API call permanently)
+       |
+  EventBridge Rule (filters for suspicious events)
+       |
+  SNS Topic
+      / \
+Email   SMS
+  +
+CloudWatch Log (permanent record)
+```
+
+**Suspicious events wired up via EventBridge:**
+
+| Suspicious Action | EventBridge Rule Catches |
+|---|---|
+| AWS Console login from unknown IP without MFA | `ConsoleLogin` with `MFAUsed = No` |
+| New IAM user created (unauthorized provisioning) | `CreateUser` API call |
+| Security group opened port 22 or 3389 (SSH/RDP exposed) | `AuthorizeSecurityGroupIngress` |
+| S3 bucket made public (data exposure risk) | `PutBucketAcl` with public access |
+| EC2 instance launched in unexpected region | `RunInstances` outside configured region |
+| Root account used (highest privilege, should never be used) | `userIdentity.type = Root` |
+| CloudTrail logging disabled | `StopLogging` or `DeleteTrail` |
+
+**How to demo it:**
+1. Create EventBridge rule matching `ConsoleLogin` without MFA
+2. Log into AWS console without MFA enabled
+3. Within 60 seconds — SNS fires email: *"IAM login detected without MFA on your AWS account"*
+4. CloudWatch logs show the full event JSON permanently

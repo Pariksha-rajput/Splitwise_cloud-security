@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session
+﻿from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session
 from flask_bcrypt import Bcrypt
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta
@@ -10,14 +10,15 @@ from collections import defaultdict
 from functools import wraps
 from security import (
     record_failed_login, is_ip_blocked, clear_failed_logins,
-    record_unauthorized_access, check_suspicious_payment
+    record_unauthorized_access, check_suspicious_payment, log_idor_attempt,
+    log_tamper_attempt
 )
 
 load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "fairsplit_secret_2024")
-app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///spiltwise.db")
+app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///fairsplit.db")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
@@ -264,6 +265,19 @@ def logout():
     return redirect(url_for("index"))
 
 
+@app.route("/system/logs", methods=["GET", "DELETE", "PATCH"])
+def system_logs():
+    ip       = request.remote_addr
+    method   = request.method
+    uid      = session.get("user_id")
+    user     = User.query.get(uid) if uid else None
+    email    = user.email if user else None
+    if method in ("DELETE", "PATCH"):
+        log_tamper_attempt(ip, method, "/system/logs", user_email=email, user_id=uid)
+        return jsonify({"error": "Forbidden — log tampering detected and recorded"}), 403
+    return jsonify({"message": "Log access is read-only. All logs are forwarded to Azure Log Analytics and cannot be deleted from this endpoint."}), 200
+
+
 @app.route("/dashboard")
 @login_required
 def dashboard():
@@ -370,6 +384,12 @@ def settle_expense(expense_id):
     uid     = session["user_id"]
     expense = Expense.query.get_or_404(expense_id)
     user    = User.query.get(uid)
+
+    # IDOR protection: block if the logged-in user is not a member of this expense
+    if user not in expense.members:
+        log_idor_attempt(uid, user.email, expense_id, request.remote_addr)
+        return jsonify({"error": "Forbidden"}), 403
+
     if user not in expense.settled:
         expense.settled.append(user)
         db.session.commit()
@@ -723,9 +743,10 @@ def _top_partners(uid):
     return result
 
 
+with app.app_context():
+    db.create_all()
+
 if __name__ == "__main__":
-    with app.app_context():
-        db.create_all()
     port = int(os.getenv("PORT", "5000"))
     print("Starting Fairsplit...")
     print(f"Open http://localhost:{port} in your browser")

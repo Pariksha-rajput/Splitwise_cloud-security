@@ -1,6 +1,6 @@
-# 💸 Spiltwise — Full-Stack Expense Splitting App
+﻿# 💸 Fairsplit — Full-Stack Expense Splitting App
 
-A complete Splitwise-like application built with **Python (Flask)** + **MongoDB** — 100% free to run!
+A complete Fairsplit-like application built with **Python (Flask)** + **MongoDB** — 100% free to run!
 
 ---
 
@@ -8,7 +8,7 @@ A complete Splitwise-like application built with **Python (Flask)** + **MongoDB*
 
 ### Step 1: Install Python dependencies
 ```bash
-cd spiltwise
+cd fairsplit
 pip install -r requirements.txt
 ```
 
@@ -67,7 +67,7 @@ Open **http://localhost:5000** in your browser 🎉
 ## 📁 Project Structure
 
 ```
-spiltwise/
+fairsplit/
 ├── app.py              # Main Flask app (all services)
 ├── requirements.txt    # Python dependencies
 ├── .env.example        # Environment config template

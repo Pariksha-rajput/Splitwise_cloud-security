@@ -1,4 +1,4 @@
-import logging
+﻿import logging
 import json
 from datetime import datetime
 from collections import defaultdict
@@ -6,7 +6,7 @@ from threading import Lock
 from time import time
 
 # ── Structured Security Logger ────────────────────────────────────────────────
-security_logger = logging.getLogger("spiltwise.security")
+security_logger = logging.getLogger("fairsplit.security")
 security_logger.setLevel(logging.INFO)
 handler = logging.StreamHandler()
 handler.setFormatter(logging.Formatter("%(message)s"))
@@ -14,7 +14,7 @@ if not security_logger.handlers:
     security_logger.addHandler(handler)
 
 # ── Config ────────────────────────────────────────────────────────────────────
-FAILED_LOGIN_THRESHOLD = 5      # block after 5 failures
+FAILED_LOGIN_THRESHOLD = 3      # block after 3 failures
 FAILED_LOGIN_WINDOW    = 300    # within 5 minutes
 SCANNING_THRESHOLD     = 10     # unauthorized hits before flagging
 SCANNING_WINDOW        = 60     # within 1 minute
@@ -31,7 +31,7 @@ def log_security_event(event_type, details, severity="WARNING"):
     """Log structured JSON security event to stdout — captured by AKS OMS agent → Log Analytics."""
     event = {
         "timestamp":  datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "service":    "spiltwise",
+        "service":    "fairsplit",
         "event_type": event_type,
         "severity":   severity,
         "details":    details,
@@ -111,6 +111,19 @@ def record_unauthorized_access(ip, route, method):
         }, severity="CRITICAL")
 
 
+# ── Scenario 2b: IDOR — Unauthorized Expense Settlement ───────────────────────
+
+def log_idor_attempt(user_id, email, expense_id, ip):
+    """Log an IDOR attempt where a user tries to settle an expense they are not party to."""
+    log_security_event("IDOR_ATTEMPT_DETECTED", {
+        "user_id":    user_id,
+        "email":      email,
+        "expense_id": expense_id,
+        "ip":         ip,
+        "action":     "Blocked — user is not a member of this expense",
+    }, severity="CRITICAL")
+
+
 # ── Scenario 3: Suspicious Transaction ───────────────────────────────────────
 
 def check_suspicious_payment(user_id, amount, to_user):
@@ -125,3 +138,17 @@ def check_suspicious_payment(user_id, amount, to_user):
         }, severity="CRITICAL")
         return True
     return False
+
+
+# ── Scenario 5: Log Tampering Attempt ────────────────────────────────────────
+
+def log_tamper_attempt(ip, method, route, user_email=None, user_id=None):
+    """Log when a DELETE/PATCH request targets a sensitive system route."""
+    log_security_event("LOG_TAMPER_ATTEMPT", {
+        "ip":         ip,
+        "method":     method,
+        "route":      route,
+        "user_email": user_email or "unauthenticated",
+        "user_id":    user_id or "unknown",
+        "action":     "Blocked — destructive method not permitted on this endpoint",
+    }, severity="CRITICAL")

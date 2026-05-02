@@ -1,5 +1,5 @@
-{% extends "base.html" %}
-{% block title %}Balances · Spiltwise{% endblock %}
+﻿{% extends "base.html" %}
+{% block title %}Balances Â· Fairsplit{% endblock %}
 {% block content %}
 <div class="page-header animate">
   <div>
@@ -30,7 +30,7 @@
         {% else %}
           <div class="avatar lg" style="background:var(--danger-pale);color:var(--danger);font-weight:700;font-size:18px">$</div>
           <div style="flex:1">
-            <div style="font-weight:600;font-size:15px">You → {{ item.user.name }}</div>
+            <div style="font-weight:600;font-size:15px">You â†’ {{ item.user.name }}</div>
             <div style="font-size:13px;color:var(--text-muted)">you owe</div>
           </div>
           <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:22px;color:var(--danger)">${{ "%.2f"|format(item.amount) }}</div>
@@ -96,7 +96,7 @@
     </tbody>
   </table>
   {% else %}
-  <div class="empty-state"><div class="icon">⚖️</div><p>No balances to show</p></div>
+  <div class="empty-state"><div class="icon">âš–ï¸</div><p>No balances to show</p></div>
   {% endif %}
 </div>
 
@@ -120,7 +120,7 @@
       </div>
       <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:8px">
         <button type="button" onclick="closeModal()" class="btn btn-outline">Cancel</button>
-        <button type="submit" class="btn btn-primary">Send Payment ✓</button>
+        <button type="submit" class="btn btn-primary">Send Payment âœ“</button>
       </div>
     </form>
   </div>
@@ -143,3 +143,4 @@ document.getElementById('pay-modal').addEventListener('click', e => {
 });
 </script>
 {% endblock %}
+

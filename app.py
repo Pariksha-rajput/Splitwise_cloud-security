@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session
+﻿from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session
 from flask_bcrypt import Bcrypt
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta
@@ -8,14 +8,14 @@ from collections import defaultdict
 from functools import wraps
 from security import (
     record_failed_login, is_ip_blocked, clear_failed_logins,
-    record_unauthorized_access, check_suspicious_payment
+    record_unauthorized_access, check_suspicious_payment, log_idor_attempt
 )
 
 load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY", "spiltwise_secret_2024")
-app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///spiltwise.db")
+app.secret_key = os.getenv("SECRET_KEY", "fairsplit_secret_2024")
+app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///fairsplit.db")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
@@ -152,7 +152,7 @@ def signup():
         db.session.commit()
         session["user_id"]   = user.id
         session["user_name"] = user.name
-        flash("Welcome to Spiltwise!", "success")
+        flash("Welcome to Fairsplit!", "success")
         return redirect(url_for("dashboard"))
     return render_template("signup.html")
 
@@ -264,6 +264,12 @@ def settle_expense(expense_id):
     uid     = session["user_id"]
     expense = Expense.query.get_or_404(expense_id)
     user    = User.query.get(uid)
+
+    # IDOR protection: block if the logged-in user is not a member of this expense
+    if user not in expense.members:
+        log_idor_attempt(uid, user.email, expense_id, request.remote_addr)
+        return jsonify({"error": "Forbidden"}), 403
+
     if user not in expense.settled:
         expense.settled.append(user)
         db.session.commit()
@@ -497,9 +503,10 @@ def _top_partners(uid):
     return result
 
 
+with app.app_context():
+    db.create_all()
+
 if __name__ == "__main__":
-    with app.app_context():
-        db.create_all()
-    print("Starting Spiltwise...")
+    print("Starting Fairsplit...")
     print("Open http://localhost:5000 in your browser")
     app.run(debug=True, port=5000)

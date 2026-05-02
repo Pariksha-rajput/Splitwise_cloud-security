@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Fairsplit — Project Architecture Diagrams</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #0f1117;
+      color: #e0e0e0;
+      padding: 40px 20px;
+    }
+    h1 {
+      text-align: center;
+      font-size: 28px;
+      color: #ffffff;
+      margin-bottom: 6px;
+    }
+    .subtitle {
+      text-align: center;
+      color: #888;
+      font-size: 14px;
+      margin-bottom: 50px;
+    }
+    .diagram-section {
+      background: #1a1d27;
+      border: 1px solid #2a2d3e;
+      border-radius: 14px;
+      padding: 30px;
+      margin-bottom: 40px;
+      max-width: 1200px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .diagram-section h2 {
+      font-size: 18px;
+      color: #7c9eff;
+      margin-bottom: 6px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #2a2d3e;
+    }
+    .diagram-desc {
+      font-size: 13px;
+      color: #888;
+      margin: 10px 0 20px 0;
+    }
+    .mermaid {
+      background: #ffffff;
+      border-radius: 10px;
+      padding: 20px;
+      overflow-x: auto;
+    }
+    .toc {
+      max-width: 1200px;
+      margin: 0 auto 40px auto;
+      background: #1a1d27;
+      border: 1px solid #2a2d3e;
+      border-radius: 14px;
+      padding: 24px 30px;
+    }
+    .toc h2 { color: #7c9eff; margin-bottom: 14px; font-size: 16px; }
+    .toc ol { padding-left: 20px; }
+    .toc li { margin: 6px 0; }
+    .toc a { color: #a0b4ff; text-decoration: none; font-size: 14px; }
+    .toc a:hover { color: #ffffff; }
+  </style>
+</head>
+<body>
+  <h1>Fairsplit — Project Architecture</h1>
+  <p class="subtitle">CS581 Cloud Security &nbsp;|&nbsp; Pariksha Rajput &nbsp;|&nbsp; Microsoft Azure &nbsp;|&nbsp; https://20.100.154.95.nip.io</p>
+
+  <div class="toc">
+    <h2>Diagrams</h2>
+    <ol>
+      <li><a href="#infra">Full Infrastructure Overview</a></li>
+      <li><a href="#network">Network Architecture</a></li>
+      <li><a href="#k8s">Kubernetes Cluster Architecture</a></li>
+      <li><a href="#request">HTTPS Request Flow</a></li>
+      <li><a href="#security">Security Architecture — 7 Layers</a></li>
+      <li><a href="#monitoring">Monitoring and Logging Pipeline</a></li>
+      <li><a href="#cicd">CI/CD and Deployment Pipeline</a></li>
+      <li><a href="#secrets">Secret Management Flow</a></li>
+    </ol>
+  </div>
+
+  <!-- Diagram 1: Full Infrastructure -->
+  <div class="diagram-section" id="infra">
+    <h2>1. Full Infrastructure Overview</h2>
+    <p class="diagram-desc">All Azure resources, node pools, pods, and external connections in one view.</p>
+    <div class="mermaid">
+flowchart TB
+    User(["Browser\n20.100.154.95.nip.io"])
+    Dev(["Developer\nMachine"])
+
+    subgraph AZURE["MICROSOFT AZURE — secure-aks-rg"]
+        ACR["Azure Container Registry\nfairsplitacrq0w0x3.azurecr.io\nSKU: Standard"]
+        KV["Azure Key Vault\nfairsplit-kv-q0w0x3"]
+
+        subgraph MON["Monitoring Stack"]
+            LA["Log Analytics Workspace\naks-log-workspace"]
+            DEF["Microsoft Defender\nfor Containers"]
+            MON1["Azure Monitor\n4 Scheduled Query Alert Rules"]
+            AG["Action Group\nEmail: pariksha.rajput2912@gmail.com"]
+        end
+
+        subgraph VNET["Virtual Network: 10.0.0.0/16"]
+            subgraph FSUB["Frontend Subnet: 10.0.1.0/24   NSG: Allow 80,443 from Internet"]
+                LB["Azure Standard Load Balancer\nPublic IP: 20.100.154.95"]
+                IC["NGINX Ingress Controller\nTLS Termination\nLet's Encrypt Certificate"]
+                FP["Frontend Pod\nnginx:alpine\nReverse Proxy port 80"]
+            end
+            subgraph BSUB["Backend Subnet: 10.0.2.0/24   NSG: Allow 5000 from VNet only"]
+                BP["Backend Pod\nFlask + Gunicorn\nNon-root UID 1000   port 5000"]
+                DB[("Azure Disk PVC\nSQLite Database\nfairsplit.db  1Gi")]
+            end
+        end
+    end
+
+    User -->|"HTTPS port 443"| LB
+    LB --> IC
+    IC -->|"TLS terminated\nHTTP port 80"| FP
+    FP -->|"proxy pass\nport 5000"| BP
+    BP --- DB
+    Dev -->|"docker build and push"| ACR
+    Dev -->|"terraform apply"| AZURE
+    ACR -->|"Managed Identity\nAcrPull role\nno password"| BP
+    BP -->|"stdout JSON logs\nOMS Agent"| LA
+    LA --> MON1
+    MON1 --> AG
+    DEF -->|"runtime alerts"| LA
+    KV -.->|"secrets reference"| BP
+    </div>
+  </div>
+
+  <!-- Diagram 2: Network Architecture -->
+  <div class="diagram-section" id="network">
+    <h2>2. Network Architecture</h2>
+    <p class="diagram-desc">Subnet isolation, NSG rules, and traffic flow from internet to database.</p>
+    <div class="mermaid">
+flowchart TD
+    INET(["INTERNET"])
+
+    subgraph FNET["Frontend Subnet  10.0.1.0/24"]
+        NSG1["NSG: frontend-nsg\nALLOW TCP 80 from Internet\nALLOW TCP 443 from Internet\nDENY all other inbound"]
+        LB2["Azure Load Balancer\n20.100.154.95"]
+        IC2["NGINX Ingress Controller\nfrontendpool node"]
+        FP2["Frontend Pod x1\nnginx:alpine"]
+    end
+
+    subgraph BNET["Backend Subnet  10.0.2.0/24"]
+        NSG2["NSG: backend-nsg\nALLOW TCP 5000 from 10.0.0.0/16\nDENY all internet inbound"]
+        BP2["Backend Pod x1\nFlask + Gunicorn"]
+        NP["NetworkPolicy\nAllow port 5000\nfrom app=frontend only"]
+        DB2[("Azure Disk\nSQLite DB\n1Gi")]
+    end
+
+    INET -->|"HTTPS 443"| LB2
+    INET -->|"HTTP 80 redirected"| LB2
+    LB2 --> NSG1
+    NSG1 --> IC2
+    IC2 -->|"Decrypted HTTP"| FP2
+    FP2 --> NSG2
+    NSG2 --> NP
+    NP --> BP2
+    BP2 --- DB2
+    </div>
+  </div>
+
+  <!-- Diagram 3: Kubernetes Cluster -->
+  <div class="diagram-section" id="k8s">
+    <h2>3. Kubernetes Cluster Architecture</h2>
+    <p class="diagram-desc">All namespaces, workloads, services, and Kubernetes resources in the AKS cluster.</p>
+    <div class="mermaid">
+flowchart TB
+    subgraph AKS["AKS Cluster: secure-aks-cluster"]
+        subgraph INGNS["Namespace: ingress-nginx   frontendpool"]
+            ICN["NGINX Ingress Controller\nService: LoadBalancer\nIP: 20.100.154.95"]
+            CI["ClusterIssuer\nletsencrypt-prod\nACME HTTP-01"]
+        end
+
+        subgraph CERTNS["Namespace: cert-manager"]
+            CM["cert-manager\nCertificate lifecycle"]
+            CAI["cainjector"]
+            CWH["webhook"]
+        end
+
+        subgraph FSNS["Namespace: fairsplit"]
+            subgraph RBAC["RBAC"]
+                SA["ServiceAccount\nbackend-sa"]
+                RL["Role: backend-role\nread Secrets only"]
+                RB["RoleBinding\nbackend-binding"]
+            end
+            subgraph SECRETS["Secrets"]
+                S1["app-secret\nSECRET_KEY"]
+                S2["smtp-secret\nSMTP credentials"]
+                S3["fairsplit-tls\nTLS certificate"]
+            end
+            subgraph STORAGE["Storage"]
+                PVC["PVC: fairsplit-db-pvc\nAzure Disk  1Gi"]
+                CM2["ConfigMap: nginx-config\nNGINX proxy config"]
+            end
+            subgraph WORKLOADS["Workloads"]
+                FD["Deployment: frontend\nnginx:alpine\n1 replica"]
+                BD["Deployment: backend\nfairsplit:latest\n1 replica"]
+                FS["Service: frontend\nClusterIP port 80"]
+                BS["Service: backend\nClusterIP port 5000"]
+                ING["Ingress: fairsplit-ingress\n20.100.154.95.nip.io\nTLS enabled"]
+                NETPOL["NetworkPolicy\nbackend-policy"]
+            end
+        end
+    end
+
+    ICN --> ING
+    ING --> FS
+    FS --> FD
+    FD --> BS
+    BS --> BD
+    BD --- PVC
+    BD --- S1
+    BD --- S2
+    BD --- S3
+    FD --- CM2
+    SA --- RL
+    RL --- RB
+    BD --- SA
+    NETPOL --> BD
+    CI --> CM
+    </div>
+  </div>
+
+  <!-- Diagram 4: Request Flow -->
+  <div class="diagram-section" id="request">
+    <h2>4. HTTPS Request Flow</h2>
+    <p class="diagram-desc">Step-by-step journey of a user request from browser to database and back.</p>
+    <div class="mermaid">
+sequenceDiagram
+    participant B as Browser
+    participant DNS as nip.io DNS
+    participant LB as Azure Load Balancer
+    participant IC as NGINX Ingress Controller
+    participant FP as Frontend Pod
+    participant BP as Backend Pod
+    participant DB as SQLite Database
+
+    B->>DNS: Resolve 20.100.154.95.nip.io
+    DNS-->>B: 20.100.154.95
+
+    B->>LB: HTTPS GET / (port 443)
+    LB->>IC: Forward to ingress-nginx pod
+
+    Note over IC: Terminate TLS<br/>Decrypt with fairsplit-tls Secret<br/>Check Host header and path rules
+
+    IC->>FP: HTTP GET / (port 80, decrypted)
+
+    Note over FP: nginx:alpine proxy<br/>Adds X-Real-IP header<br/>proxy_pass http://backend:5000
+
+    FP->>BP: HTTP GET / (port 5000)
+
+    Note over BP: security.py checks:<br/>Is IP blocked? No<br/>Is user logged in?
+
+    BP->>DB: SQLAlchemy query
+    DB-->>BP: Data returned
+    BP-->>FP: HTML response
+    FP-->>IC: HTML response
+    IC->>IC: Re-encrypt with TLS
+    IC-->>LB: HTTPS response
+    LB-->>B: Encrypted HTTPS response
+
+    Note over B: Browser shows padlock<br/>Valid Let's Encrypt cert
+    </div>
+  </div>
+
+  <!-- Diagram 5: Security Architecture -->
+  <div class="diagram-section" id="security">
+    <h2>5. Security Architecture — 7 Defense Layers</h2>
+    <p class="diagram-desc">Defense in depth from network edge to application middleware and cloud monitoring.</p>
+    <div class="mermaid">
+flowchart TD
+    ATK(["ATTACKER"])
+
+    L1["LAYER 1 — Azure NSG\nfrontend-nsg: Allow 80,443 from Internet\nbackend-nsg: Allow 5000 from VNet only"]
+    L2["LAYER 2 — Kubernetes NetworkPolicy\nBackend accepts port 5000 from frontend pods only\nFrontend accepts port 80 from ingress-nginx only"]
+    L3["LAYER 3 — NGINX Ingress Controller\nTLS termination  —  HTTP to HTTPS redirect\nHost-based routing  —  unknown hosts dropped"]
+    L4["LAYER 4 — Frontend NGINX Proxy\nNever exposes backend port externally\nForwards X-Real-IP for accurate IP tracking"]
+    L5["LAYER 5 — Flask Authentication\n@login_required on all protected routes\nBcrypt password hashing  —  Signed session cookie"]
+    L6["LAYER 6 — security.py Middleware\nBrute force: 3 failures block IP + CRITICAL log\nIDOR: expense ownership verified before settle\nLog tamper: DELETE blocked + attacker identity logged\nScanning: 10 unauth hits trigger SCANNING_DETECTED"]
+    L7["LAYER 7 — Azure Monitor + Defender\n4 alert rules fire email on CRITICAL events\nDefender flags kubectl exec into pods\nkube-audit records all control plane operations"]
+    BLOCKED(["ATTACK BLOCKED\nIdentity Logged\nEmail Alert Fired"])
+
+    ATK -->|"network packet"| L1
+    L1 -->|"passes NSG"| L2
+    L2 -->|"passes NetworkPolicy"| L3
+    L3 -->|"TLS verified"| L4
+    L4 -->|"proxied"| L5
+    L5 -->|"authenticated"| L6
+    L6 -->|"suspicious activity"| L7
+    L7 --> BLOCKED
+
+    style ATK fill:#c0392b,color:#fff
+    style BLOCKED fill:#27ae60,color:#fff
+    style L1 fill:#2c3e50,color:#fff
+    style L2 fill:#2c3e50,color:#fff
+    style L3 fill:#2c3e50,color:#fff
+    style L4 fill:#2c3e50,color:#fff
+    style L5 fill:#2c3e50,color:#fff
+    style L6 fill:#8e44ad,color:#fff
+    style L7 fill:#1a5276,color:#fff
+    </div>
+  </div>
+
+  <!-- Diagram 6: Monitoring Pipeline -->
+  <div class="diagram-section" id="monitoring">
+    <h2>6. Monitoring and Logging Pipeline</h2>
+    <p class="diagram-desc">How security events flow from the Flask app to Azure Monitor email alerts.</p>
+    <div class="mermaid">
+flowchart LR
+    subgraph APP["Flask Application"]
+        SEC["security.py\nlog_security_event()"]
+        EVT["Security Events\nBRUTE_FORCE_DETECTED\nIDOR_ATTEMPT_DETECTED\nLOG_TAMPER_ATTEMPT\nSCANNING_DETECTED"]
+    end
+
+    subgraph POD["Pod Runtime"]
+        STDOUT["stdout\nJSON logs"]
+        OMS["OMS Agent\nDaemonSet"]
+    end
+
+    subgraph AZURE_MON["Azure Monitoring"]
+        LA2["Log Analytics\naks-log-workspace\nContainerLog table"]
+        DEF2["Microsoft Defender\nRuntime alerts\nkubectl exec detection"]
+        KUBE["kube-audit log\nAll kubectl operations"]
+        MON2["Azure Monitor\nScheduled Query Rules\nEvery 1-5 minutes"]
+    end
+
+    subgraph ALERT["Alerting"]
+        AG2["Action Group\nfairsplit-security-alerts"]
+        EMAIL["Email Alert\npariksha.rajput2912\n@gmail.com"]
+    end
+
+    SEC --> EVT
+    EVT --> STDOUT
+    STDOUT --> OMS
+    OMS --> LA2
+    DEF2 --> LA2
+    KUBE --> LA2
+    LA2 --> MON2
+
+    MON2 -->|"brute-force-detection\nPT5M"| AG2
+    MON2 -->|"idor-attempt-detection\nPT5M"| AG2
+    MON2 -->|"log-tamper-detection\nPT5M"| AG2
+    MON2 -->|"scanning-detection\nPT1M"| AG2
+
+    AG2 --> EMAIL
+    </div>
+  </div>
+
+  <!-- Diagram 7: CI/CD Pipeline -->
+  <div class="diagram-section" id="cicd">
+    <h2>7. CI/CD and Deployment Pipeline</h2>
+    <p class="diagram-desc">From code change to live running pod — infrastructure and application deployment flows.</p>
+    <div class="mermaid">
+flowchart TB
+    subgraph INFRA["Infrastructure Deployment — Terraform"]
+        TF1["terraform init"]
+        TF2["terraform plan"]
+        TF3["terraform apply"]
+        TF4["Azure Resources Provisioned\nVNet — NSG — AKS — ACR — KV\nLog Analytics — Defender\nMonitor Alerts x4"]
+        TF1 --> TF2 --> TF3 --> TF4
+    end
+
+    subgraph IMAGE["Image Build and Push"]
+        C1["Code Change\napp.py or security.py"]
+        C2["docker build\npython:3.11-slim base\nCOPY Spiltwise files"]
+        C3["az acr login\nOAuth via Azure CLI\nno password"]
+        C4["docker push\nfairsplitacrq0w0x3\n.azurecr.io/fairsplit:latest"]
+        C1 --> C2 --> C3 --> C4
+    end
+
+    subgraph DEPLOY["Kubernetes Deployment"]
+        D1["kubectl apply -f K8s/\nnamespace, pvc, secrets\nrbac, networkpolicy\ndeployments, services\ningress, cluster-issuer"]
+        D2["kubectl rollout restart\ndeployment/backend"]
+        D3["AKS kubelet\npulls image from ACR\nvia Managed Identity"]
+        D4["Old pod terminates\nNew pod starts\nRolling update\nzero downtime"]
+        D1 --> D2 --> D3 --> D4
+    end
+
+    TF4 -->|"AKS cluster ready"| D1
+    C4 -->|"new image available"| D2
+    </div>
+  </div>
+
+  <!-- Diagram 8: Secret Management -->
+  <div class="diagram-section" id="secrets">
+    <h2>8. Secret Management Flow</h2>
+    <p class="diagram-desc">How secrets are stored, injected, and kept out of code and images.</p>
+    <div class="mermaid">
+flowchart LR
+    subgraph SOURCES["Secret Sources"]
+        RAW1["SECRET_KEY\nraw value"]
+        RAW2["SMTP credentials\nhost, user, pass"]
+        RAW3["ACR access\nno secret needed"]
+    end
+
+    subgraph K8S["Kubernetes Secrets"]
+        SEC1["app-secret\nbase64 encoded"]
+        SEC2["smtp-secret\nbase64 encoded"]
+        MI["Managed Identity\nAzure AD OAuth token"]
+    end
+
+    subgraph CONTAINER["Container Runtime"]
+        ENV1["ENV: SECRET_KEY\ninjected at pod start"]
+        ENV2["ENV: SMTP_HOST\nENV: SMTP_USER\nENV: SMTP_PASS\ninjected at pod start"]
+        PULL["Image pull\nno credentials stored"]
+    end
+
+    subgraph NEVER["NEVER stored in"]
+        N1["Source code"]
+        N2["Dockerfile"]
+        N3["Git repository"]
+        N4["Docker image layers"]
+        N5["Log output"]
+    end
+
+    RAW1 -->|"kubectl create secret"| SEC1
+    RAW2 -->|"kubectl create secret"| SEC2
+    RAW3 --> MI
+    SEC1 -->|"secretKeyRef\nenv injection"| ENV1
+    SEC2 -->|"secretKeyRef\nenv injection"| ENV2
+    MI -->|"AcrPull role\nno password"| PULL
+
+    style NEVER fill:#c0392b,color:#fff
+    style N1 fill:#922b21,color:#fff
+    style N2 fill:#922b21,color:#fff
+    style N3 fill:#922b21,color:#fff
+    style N4 fill:#922b21,color:#fff
+    style N5 fill:#922b21,color:#fff
+    </div>
+  </div>
+
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'default',
+      flowchart: { useMaxWidth: true, curve: 'basis' },
+      sequence: { useMaxWidth: true }
+    });
+  </script>
+</body>
+</html>

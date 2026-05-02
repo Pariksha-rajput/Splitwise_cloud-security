@@ -1,8 +1,8 @@
-apiVersion: v1
+﻿apiVersion: v1
 kind: Service
 metadata:
   name: frontend
-  namespace: splitwise
+  namespace: fairsplit
 spec:
   type: LoadBalancer
   selector:

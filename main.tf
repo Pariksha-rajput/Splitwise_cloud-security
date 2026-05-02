@@ -1,4 +1,4 @@
-terraform {
+﻿terraform {
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
@@ -16,6 +16,9 @@ provider "azurerm" {
     key_vault {
       purge_soft_delete_on_destroy = true
     }
+    resource_group {
+      prevent_deletion_if_contains_resources = false
+    }
   }
 }
 
@@ -27,16 +30,11 @@ resource "random_string" "suffix" {
 }
 
 # ── Variables ──────────────────────────────────────────────────────────────────
-variable "db_password" {
-  description = "PostgreSQL admin password (set via TF_VAR_db_password env var)"
-  type        = string
-  sensitive   = true
-}
 
 # ── Resource Group ─────────────────────────────────────────────────────────────
 resource "azurerm_resource_group" "rg" {
   name     = "secure-aks-rg"
-  location = "East US"
+  location = "Norway East"
 }
 
 # ── VNet (VPC equivalent) ──────────────────────────────────────────────────────
@@ -146,7 +144,7 @@ resource "azurerm_log_analytics_workspace" "log" {
 
 # ── Azure Container Registry (Phase 7 — ECR equivalent) ───────────────────────
 resource "azurerm_container_registry" "acr" {
-  name                = "splitwiseacr${random_string.suffix.result}"
+  name                = "fairsplitacr${random_string.suffix.result}"
   resource_group_name = azurerm_resource_group.rg.name
   location            = azurerm_resource_group.rg.location
   sku                 = "Standard"
@@ -159,12 +157,11 @@ resource "azurerm_kubernetes_cluster" "aks" {
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
   dns_prefix          = "secureaks"
-  kubernetes_version  = "1.29"
 
   default_node_pool {
     name           = "frontendpool"
     node_count     = 1
-    vm_size        = "Standard_DS2_v2"
+    vm_size        = "Standard_D2s_v3"
     vnet_subnet_id = azurerm_subnet.public_subnet.id
   }
 
@@ -173,10 +170,13 @@ resource "azurerm_kubernetes_cluster" "aks" {
   }
 
   role_based_access_control_enabled = true
+  oidc_issuer_enabled               = true
 
   network_profile {
     network_plugin    = "azure"
     load_balancer_sku = "standard"
+    service_cidr      = "10.1.0.0/16"
+    dns_service_ip    = "10.1.0.10"
   }
 
   oms_agent {
@@ -192,7 +192,7 @@ resource "azurerm_kubernetes_cluster" "aks" {
 resource "azurerm_kubernetes_cluster_node_pool" "backend_pool" {
   name                  = "backendpool"
   kubernetes_cluster_id = azurerm_kubernetes_cluster.aks.id
-  vm_size               = "Standard_DS2_v2"
+  vm_size               = "Standard_D2s_v3"
   node_count            = 1
   vnet_subnet_id        = azurerm_subnet.private_subnet.id
   mode                  = "User"
@@ -210,7 +210,7 @@ resource "azurerm_role_assignment" "aks_acr_pull" {
 data "azurerm_client_config" "current" {}
 
 resource "azurerm_key_vault" "kv" {
-  name                = "splitwise-kv-${random_string.suffix.result}"
+  name                = "fairsplit-kv-${random_string.suffix.result}"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
   tenant_id           = data.azurerm_client_config.current.tenant_id
@@ -231,26 +231,6 @@ resource "azurerm_key_vault" "kv" {
   }
 }
 
-# ── Azure DB for PostgreSQL Flexible Server (Phase 3 — RDS equivalent) ─────────
-resource "azurerm_postgresql_flexible_server" "db" {
-  name                   = "splitwise-db-${random_string.suffix.result}"
-  resource_group_name    = azurerm_resource_group.rg.name
-  location               = azurerm_resource_group.rg.location
-  version                = "15"
-  administrator_login    = "splitwiseadmin"
-  administrator_password = var.db_password
-  storage_mb             = 32768
-  sku_name               = "B_Standard_B1ms"
-  backup_retention_days  = 7
-}
-
-# Allow AKS VNet to reach PostgreSQL
-resource "azurerm_postgresql_flexible_server_firewall_rule" "aks_access" {
-  name             = "allow-aks-vnet"
-  server_id        = azurerm_postgresql_flexible_server.db.id
-  start_ip_address = "10.0.0.0"
-  end_ip_address   = "10.0.255.255"
-}
 
 # ── Microsoft Defender for Containers (Phase 8 — GuardDuty equivalent) ─────────
 resource "azurerm_security_center_subscription_pricing" "defender_containers" {
@@ -280,7 +260,7 @@ resource "azurerm_monitor_diagnostic_setting" "aks_diag" {
 
 # ── Azure Monitor Action Group (Phase 8 — SNS Topic equivalent) ───────────────
 resource "azurerm_monitor_action_group" "security_alerts" {
-  name                = "splitwise-security-alerts"
+  name                = "fairsplit-security-alerts"
   resource_group_name = azurerm_resource_group.rg.name
   short_name          = "sec-alerts"
 
@@ -342,6 +322,57 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "scanning_alert" {
   }
 }
 
+# ── Alert: IDOR Attempt (Scenario 2b — Unauthorized Expense Settlement) ───────
+resource "azurerm_monitor_scheduled_query_rules_alert_v2" "idor_alert" {
+  name                 = "idor-attempt-detection"
+  resource_group_name  = azurerm_resource_group.rg.name
+  location             = azurerm_resource_group.rg.location
+  evaluation_frequency = "PT5M"
+  window_duration      = "PT5M"
+  scopes               = [azurerm_log_analytics_workspace.log.id]
+  severity             = 0
+
+  criteria {
+    query                   = <<-QUERY
+      ContainerLog
+      | where LogEntry contains "IDOR_ATTEMPT_DETECTED"
+      | where TimeGenerated > ago(5m)
+    QUERY
+    time_aggregation_method = "Count"
+    threshold               = 1
+    operator                = "GreaterThanOrEqual"
+  }
+
+  action {
+    action_groups = [azurerm_monitor_action_group.security_alerts.id]
+  }
+}
+
+resource "azurerm_monitor_scheduled_query_rules_alert_v2" "log_tamper_alert" {
+  name                 = "log-tamper-detection"
+  resource_group_name  = azurerm_resource_group.rg.name
+  location             = azurerm_resource_group.rg.location
+  evaluation_frequency = "PT5M"
+  window_duration      = "PT5M"
+  scopes               = [azurerm_log_analytics_workspace.log.id]
+  severity             = 0
+
+  criteria {
+    query                   = <<-QUERY
+      ContainerLog
+      | where LogEntry contains "LOG_TAMPER_ATTEMPT"
+      | where TimeGenerated > ago(5m)
+    QUERY
+    time_aggregation_method = "Count"
+    threshold               = 1
+    operator                = "GreaterThanOrEqual"
+  }
+
+  action {
+    action_groups = [azurerm_monitor_action_group.security_alerts.id]
+  }
+}
+
 # ── Outputs ────────────────────────────────────────────────────────────────────
 output "acr_login_server" {
   value       = azurerm_container_registry.acr.login_server
@@ -350,12 +381,6 @@ output "acr_login_server" {
 
 output "aks_cluster_name" {
   value = azurerm_kubernetes_cluster.aks.name
-}
-
-output "postgresql_host" {
-  value       = azurerm_postgresql_flexible_server.db.fqdn
-  description = "PostgreSQL connection host — use in DATABASE_URL"
-  sensitive   = true
 }
 
 output "key_vault_uri" {

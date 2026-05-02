@@ -1,8 +1,8 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Sign Up · Spiltwise</title>
+  <title>Sign Up &middot; Fairsplit</title>
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
   <style>
@@ -29,9 +29,9 @@
 </head>
 <body>
   <div class="auth-card">
-    <div class="logo">Spilt<span>wise</span> </div>
+    <div class="logo">Fair<span>split</span></div>
     <div class="auth-subtitle">Create your free account in seconds</div>
-    <div style="text-align:center"><span class="free-badge">✨ Always free for students</span></div>
+    <div style="text-align:center"><span class="free-badge">Always free for students</span></div>
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% for cat, msg in messages %}
         <div class="alert alert-{{ cat }}">{{ msg }}</div>
@@ -50,9 +50,10 @@
         <label class="form-label">Password</label>
         <input type="password" name="password" class="form-control" placeholder="Min 6 characters" minlength="6" required>
       </div>
-      <button type="submit" class="btn">Create Account →</button>
+      <button type="submit" class="btn">Create Account &rarr;</button>
     </form>
     <div class="auth-footer">Already have an account? <a href="{{ url_for('login') }}">Log in</a></div>
   </div>
 </body>
 </html>
+

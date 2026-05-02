@@ -1,5 +1,5 @@
-{% extends "base.html" %}
-{% block title %}Wallet · Spiltwise{% endblock %}
+﻿{% extends "base.html" %}
+{% block title %}Wallet Â· Fairsplit{% endblock %}
 {% block content %}
 <div class="page-header animate">
   <div>
@@ -17,7 +17,7 @@
     <div style="font-family:'Syne',sans-serif;font-size:48px;font-weight:800;letter-spacing:-2px;margin-bottom:24px">
       ${{ "%.2f"|format(wallet.balance) }}
     </div>
-    <div style="font-size:13px;opacity:0.7"> Spiltwise Wallet</div>
+    <div style="font-size:13px;opacity:0.7"> Fairsplit Wallet</div>
   </div>
 
   <!-- Top Up -->
@@ -74,14 +74,14 @@
               <div class="avatar" style="background:{{ other.avatar_color or '#4ECDC4' }};width:28px;height:28px;font-size:11px">{{ other.name[0].upper() }}</div>
               {{ other.name }}
             </div>
-          {% else %}—{% endif %}
+          {% else %}â€”{% endif %}
         </td>
         <td>
           <strong style="color:{{ 'var(--primary)' if not is_sender or is_system else 'var(--danger)' }}">
             {{ '+' if not is_sender or is_system else '-' }}${{ "%.2f"|format(p.amount) }}
           </strong>
         </td>
-        <td style="color:var(--text-muted);font-size:13px">{{ p.note or '—' }}</td>
+        <td style="color:var(--text-muted);font-size:13px">{{ p.note or 'â€”' }}</td>
         <td style="color:var(--text-muted);font-size:13px">{{ p.created_at.strftime('%d %b %Y') }}</td>
       </tr>
       {% endfor %}
@@ -95,3 +95,4 @@
   {% endif %}
 </div>
 {% endblock %}
+

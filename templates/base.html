@@ -1,9 +1,9 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>{% block title %}Spiltwise{% endblock %}</title>
+  <title>{% block title %}Fairsplit{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
@@ -351,8 +351,7 @@
   {% if session.user_id %}
   <nav class="sidebar">
     <div class="logo">
-      <div class="logo-icon">💸</div>
-      <div class="logo-text">Spilt<span>wise</span></div>
+      <div class="logo-text">Fair<span>split</span></div>
     </div>
     <div class="nav-label">Main</div>
     <a href="{{ url_for('dashboard') }}" class="nav-link {% if request.endpoint=='dashboard' %}active{% endif %}">
@@ -403,3 +402,4 @@
   {% block scripts %}{% endblock %}
 </body>
 </html>
+

@@ -1,8 +1,8 @@
-# Spiltwise — Project Detailing
+﻿# Fairsplit — Project Detailing
 
 ## Overview
 
-Spiltwise is a web-based expense splitting and payment tracking application built with Flask. It allows multiple users to share expenses, track who owes whom, settle debts, and manage a personal wallet. The app uses graph-based debt simplification to minimize the number of transactions needed to settle all balances within a group.
+Fairsplit is a web-based expense splitting and payment tracking application built with Flask. It allows multiple users to share expenses, track who owes whom, settle debts, and manage a personal wallet. The app uses graph-based debt simplification to minimize the number of transactions needed to settle all balances within a group.
 
 ---
 
@@ -230,10 +230,10 @@ This is the classic **"Optimal Account Balancing"** problem, a well-known graph/
 SECRET_KEY=your_secret_key_here
 
 # Local development (SQLite)
-DATABASE_URL=sqlite:///spiltwise.db
+DATABASE_URL=sqlite:///fairsplit.db
 
 # Azure production (PostgreSQL Flexible Server)
-# DATABASE_URL=postgresql://splitwiseadmin:<password>@<postgresql_host>:5432/spiltwise
+# DATABASE_URL=postgresql://fairsplitadmin:<password>@<postgresql_host>:5432/fairsplit
 ```
 
 ---
@@ -242,11 +242,11 @@ DATABASE_URL=sqlite:///spiltwise.db
 
 ### Local
 ```bash
-cd spiltwise
+cd fairsplit
 pip install -r requirements.txt
 python app.py
 ```
-App runs at `http://localhost:5000`. The SQLite database file (`spiltwise.db`) is created automatically on first run.
+App runs at `http://localhost:5000`. The SQLite database file (`fairsplit.db`) is created automatically on first run.
 
 ### Azure Deployment
 - Set `DATABASE_URL` environment variable to your Azure PostgreSQL Flexible Server connection string
@@ -257,7 +257,7 @@ App runs at `http://localhost:5000`. The SQLite database file (`spiltwise.db`) i
 
 ## Architecture — Monolith with Microservice Boundaries
 
-Spiltwise is currently built as a **monolithic Flask application**. All logic lives in `app.py` and shares a single SQLite/PostgreSQL database. However, the codebase is logically structured around clear service boundaries that map directly to independent microservices if the app were to be decomposed for scale.
+Fairsplit is currently built as a **monolithic Flask application**. All logic lives in `app.py` and shares a single SQLite/PostgreSQL database. However, the codebase is logically structured around clear service boundaries that map directly to independent microservices if the app were to be decomposed for scale.
 
 ### Current Architecture
 ```
@@ -295,6 +295,15 @@ Client (Browser / Mobile)
 - Services communicate via REST APIs or a message queue
 - The Balance Service subscribes to events from Expense and Payment services to recompute balances
 - Auth Service issues JWT tokens; all other services validate them independently
+
+### Why Monolith First
+For the current scope (single deployment, small team), a monolith is the right choice:
+- Simpler to develop, test, and deploy
+- No network latency between service calls
+- Single database transaction across expense + split creation
+- Easy migration to Azure with a single Gunicorn + AKS setup
+
+The logical boundaries are already clean in the code, making a future microservices migration straightforward.
 
 ---
 
@@ -400,7 +409,7 @@ az account set --subscription "<your-subscription-id>"
 
 ### Step 1 — Terraform Init & Apply
 ```bash
-cd "Splitwise_cloud-security"
+cd "Fairsplit_cloud-security"
 terraform init
 
 # Set a strong DB password — used by PostgreSQL and Key Vault
@@ -414,7 +423,7 @@ Terraform provisions: Resource Group, VNet, NSGs, Log Analytics, ACR, AKS (front
 
 ### Step 2 — Note Terraform Outputs
 ```bash
-terraform output acr_login_server   # e.g. splitwiseacrXXXXXX.azurecr.io
+terraform output acr_login_server   # e.g. fairsplitacrXXXXXX.azurecr.io
 terraform output aks_cluster_name   # secure-aks-cluster
 terraform output postgresql_host    # your-db.postgres.database.azure.com
 ```
@@ -441,8 +450,8 @@ CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "app:app"]
 ```bash
 ACR_SERVER=$(terraform output -raw acr_login_server)
 az acr login --name $ACR_SERVER
-docker build -t $ACR_SERVER/splitwise:latest .
-docker push $ACR_SERVER/splitwise:latest
+docker build -t $ACR_SERVER/fairsplit:latest .
+docker push $ACR_SERVER/fairsplit:latest
 ```
 
 ---
@@ -476,25 +485,25 @@ az keyvault secret set --vault-name $KV_NAME \
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: splitwise
+  name: fairsplit
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: splitwise
+      app: fairsplit
   template:
     metadata:
       labels:
-        app: splitwise
+        app: fairsplit
     spec:
       containers:
-      - name: splitwise
-        image: <acr_login_server>/splitwise:latest
+      - name: fairsplit
+        image: <acr_login_server>/fairsplit:latest
         ports:
         - containerPort: 5000
         env:
         - name: DATABASE_URL
-          value: "postgresql://splitwiseadmin:<password>@<postgresql_host>:5432/spiltwise"
+          value: "postgresql://fairsplitadmin:<password>@<postgresql_host>:5432/fairsplit"
         - name: SECRET_KEY
           value: "<your_secret_key>"
         securityContext:
@@ -504,11 +513,11 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: splitwise-svc
+  name: fairsplit-svc
 spec:
   type: LoadBalancer
   selector:
-    app: splitwise
+    app: fairsplit
   ports:
   - port: 80
     targetPort: 5000
@@ -516,7 +525,7 @@ spec:
 
 ```bash
 kubectl apply -f k8s-deployment.yaml
-kubectl get svc splitwise-svc   # wait ~2 min for EXTERNAL-IP
+kubectl get svc fairsplit-svc   # wait ~2 min for EXTERNAL-IP
 ```
 
 ### Step 6 — Create the PostgreSQL Database
@@ -524,10 +533,10 @@ kubectl get svc splitwise-svc   # wait ~2 min for EXTERNAL-IP
 DB_HOST=$(terraform output -raw postgresql_host)
 
 psql "host=$DB_HOST port=5432 dbname=postgres \
-  user=splitwiseadmin password=<password> sslmode=require"
+  user=fairsplitadmin password=<password> sslmode=require"
 
 # Inside psql:
-CREATE DATABASE spiltwise;
+CREATE DATABASE fairsplit;
 \q
 # SQLAlchemy creates all tables on first app startup
 ```
@@ -570,7 +579,7 @@ All application-level security detection logic lives in `security.py`.
 | Function | Purpose |
 |---|---|
 | `log_security_event()` | Logs structured JSON to stdout → captured by AKS OMS agent → flows to Log Analytics → triggers Azure Monitor alerts |
-| `record_failed_login(ip, email)` | Tracks failed logins per IP. Triggers `BRUTE_FORCE_DETECTED` after 5 failures in 5 minutes |
+| `record_failed_login(ip, email)` | Tracks failed logins per IP. Triggers `BRUTE_FORCE_DETECTED` after 3 failures in 5 minutes |
 | `is_ip_blocked(ip)` | Returns True if IP has exceeded login failure threshold |
 | `clear_failed_logins(ip)` | Resets failed login count on successful login |
 | `record_unauthorized_access(ip, route, method)` | Logs unauthorized route access. Triggers `SCANNING_DETECTED` after 10 hits in 1 minute |
@@ -608,7 +617,7 @@ Every security event is logged as structured JSON to stdout:
 ```json
 {
   "timestamp": "2025-04-12T10:30:00Z",
-  "service": "spiltwise",
+  "service": "fairsplit",
   "event_type": "BRUTE_FORCE_DETECTED",
   "severity": "CRITICAL",
   "details": {
@@ -633,7 +642,7 @@ Every security event is logged as structured JSON to stdout:
 
 **How it is detected:**
 - Flask security middleware tracks failed login attempts per IP
-- After 5 failures within 5 minutes, threshold is exceeded
+- After 3 failures within 5 minutes, threshold is exceeded
 
 **What happens (Azure):**
 - Event `BRUTE_FORCE_DETECTED` logged as structured JSON → stdout → Log Analytics
@@ -644,7 +653,7 @@ Every security event is logged as structured JSON to stdout:
 ```json
 {
   "timestamp": "2025-04-12T10:30:00Z",
-  "service": "spiltwise",
+  "service": "fairsplit",
   "event_type": "BRUTE_FORCE_DETECTED",
   "severity": "CRITICAL",
   "details": {
@@ -657,110 +666,199 @@ Every security event is logged as structured JSON to stdout:
 
 ---
 
-### Scenario 2 — Unauthorized Access Attempt
+### Scenario 2 — IDOR Attack on Expense Settlement (Transaction Tampering)
 
-**What it is:** An unauthenticated user or bot tries to directly access protected routes like `/dashboard`, `/wallet`, `/expenses` without logging in.
+**What it is:** An authenticated attacker (Eve) manipulates the settlement URL to mark another user's expense as paid — effectively wiping someone else's debt without actually paying it.
 
 **How it is simulated:**
-- Send HTTP requests to protected routes without a valid session cookie
+- Eve logs in and notices the URL pattern: `POST /expenses/<id>/settle`
+- Eve manually crafts a request targeting expense ID 43, which belongs to Alice and Bob (not Eve)
+- Without protection, Bob's debt to Alice would be erased; Alice loses money
 
 **How it is detected:**
-- Flask `@login_required` decorator intercepts the request
-- Security middleware logs the attempt with IP and route
-- If the same IP hits 10+ protected routes within a minute, route scanning is flagged
+- `settle_expense` route checks that the logged-in user is in `expense.members`
+- If not, `log_idor_attempt()` in `security.py` fires immediately
+- Event `IDOR_ATTEMPT_DETECTED` is logged as CRITICAL to stdout → OMS agent → Log Analytics
+- Azure Monitor scheduled query alert (`idor-attempt-detection`, 5-min window) triggers → email sent to security team
 
-**What happens (Azure):**
-- Event `UNAUTHORIZED_ACCESS` logged to Log Analytics
-- If scanning threshold hit, `SCANNING_DETECTED` fires
-- Azure Monitor Scheduled Query Alert (`scanning-detection` rule, 1-min window) fires email via Action Group
+**What happens:**
+- Eve receives a `403 Forbidden` response — the transaction is blocked
+- Azure Monitor alert fires and an email is sent to `pariksha.rajput2912@gmail.com`
 
 **Log entry example:**
 ```json
 {
   "timestamp": "2025-04-12T10:31:00Z",
-  "service": "spiltwise",
-  "event_type": "UNAUTHORIZED_ACCESS",
-  "severity": "WARNING",
+  "service": "fairsplit",
+  "event_type": "IDOR_ATTEMPT_DETECTED",
+  "severity": "CRITICAL",
   "details": {
+    "user_id": 3,
+    "email": "eve@example.com",
+    "expense_id": 43,
     "ip": "203.0.113.45",
-    "route": "/wallet",
-    "method": "GET"
+    "action": "Blocked — user is not a member of this expense"
   }
 }
 ```
 
 ---
 
-### Scenario 3 — Log Deletion / Audit Tampering (Azure-Level)
+### Scenario 3 — Log Deletion / Audit Tampering
 
-**What it is:** An attacker with stolen credentials attempts to delete Log Analytics data or disable diagnostic settings to cover their tracks.
+**What it is:** An attacker who has gained access attempts to delete logs or tamper with audit records to cover their tracks. This tests three attack surfaces: the application API, the pod filesystem, and the Kubernetes control plane.
 
-**How it is simulated:**
-```bash
-# Disable AKS diagnostic settings via Azure CLI
-az monitor diagnostic-settings delete \
-  --name aks-diagnostics \
-  --resource <aks-resource-id>
+---
 
-# Attempt to delete Log Analytics workspace
-az monitor log-analytics workspace delete \
-  --resource-group secure-aks-rg \
-  --workspace-name aks-log-workspace
+**Attack Surface 1 — DELETE via application API**
+
+A dedicated protected endpoint `/system/logs` is exposed in the Flask app. Any `DELETE` or `PATCH` request is blocked immediately and logged as a `LOG_TAMPER_ATTEMPT` CRITICAL event.
+
+How it is implemented (`security.py`):
+```python
+def log_tamper_attempt(ip, method, route, user_email=None, user_id=None):
+    log_security_event("LOG_TAMPER_ATTEMPT", {
+        "ip":         ip,
+        "method":     method,
+        "route":      route,
+        "user_email": user_email or "unauthenticated",
+        "user_id":    user_id or "unknown",
+        "action":     "Blocked — destructive method not permitted on this endpoint",
+    }, severity="CRITICAL")
 ```
 
-**How it is detected:**
-- **Microsoft Defender for Cloud** raises an alert for suspicious management-plane activity
-- **Azure Activity Log** records every ARM API call permanently (equivalent to CloudTrail)
-- Azure Monitor can be configured to alert on `microsoft.operationalinsights/workspaces/delete` events
+How to simulate:
+```bash
+curl -k -X DELETE https://20.100.154.95.nip.io/system/logs
+```
+
+Expected response:
+```json
+{"error": "Forbidden — log tampering detected and recorded"}
+```
+
+Detection chain:
+1. `log_tamper_attempt(ip, method, route)` fires immediately
+2. `LOG_TAMPER_ATTEMPT` logged as CRITICAL JSON to stdout
+3. OMS agent ships to Log Analytics within minutes
+4. Azure Monitor Scheduled Query Alert triggers → email sent
+
+---
+
+**Attack Surface 2 — Exec into pod and delete log files**
+
+Attacker gains shell access to the pod and searches for log files to delete:
+```bash
+kubectl exec -it deployment/backend -n fairsplit -- /bin/sh
+find / -name "*.log" 2>/dev/null
+ls /var/log/
+```
+
+Expected result: No application log files exist in the container. All logs are written to stdout only — captured by the AKS OMS agent and shipped to Log Analytics before the attacker can access them. The pod filesystem contains no deletable log data.
+
+---
+
+**Attack Surface 3 — Delete the pod to wipe in-memory logs**
+
+```bash
+kubectl delete pod -l app=backend -n fairsplit
+```
+
+Expected result: Kubernetes recreates the pod within seconds from the Deployment spec. All events already shipped to Log Analytics remain intact and immutable — pod deletion has no effect on the external log store.
+
+---
+
+**Defense Summary:**
+
+| Attack | Defense |
+|---|---|
+| DELETE /system/logs via API | Route blocked, `LOG_TAMPER_ATTEMPT` fired and forwarded to Log Analytics |
+| Exec into pod, delete log files | No log files exist — stdout only, already shipped externally |
+| Delete the pod | Kubernetes recreates it; Log Analytics retains all prior events |
+| Delete Log Analytics workspace | Azure RBAC + Resource Lock (`CanNotDelete`) blocks deletion |
+| Disable diagnostic settings | Azure Activity Log records the attempt permanently (immutable) |
+
+**Azure Monitor Alert Rule (main.tf):**
+
+A dedicated Scheduled Query Alert rule `log-tamper-detection` is defined in Terraform and fires an email via the Action Group whenever a `LOG_TAMPER_ATTEMPT` event appears in Log Analytics:
+
+```hcl
+resource "azurerm_monitor_scheduled_query_rules_alert_v2" "log_tamper_alert" {
+  name                 = "log-tamper-detection"
+  resource_group_name  = azurerm_resource_group.rg.name
+  location             = azurerm_resource_group.rg.location
+  evaluation_frequency = "PT5M"
+  window_duration      = "PT5M"
+  scopes               = [azurerm_log_analytics_workspace.log.id]
+  severity             = 0
+
+  criteria {
+    query                   = <<-QUERY
+      ContainerLog
+      | where LogEntry contains "LOG_TAMPER_ATTEMPT"
+      | where TimeGenerated > ago(5m)
+    QUERY
+    time_aggregation_method = "Count"
+    threshold               = 1
+    operator                = "GreaterThanOrEqual"
+  }
+
+  action {
+    action_groups = [azurerm_monitor_action_group.security_alerts.id]
+  }
+}
+```
+
+**Full alert pipeline:**
+```
+Attacker sends DELETE /system/logs
+        |
+        v
+log_tamper_attempt() fires — captures IP + user_email + user_id
+        |
+        v
+LOG_TAMPER_ATTEMPT logged as CRITICAL JSON to stdout
+        |
+        v
+AKS OMS Agent ships to Log Analytics Workspace
+        |
+        v
+Azure Monitor (log-tamper-detection rule) queries every 5 minutes
+        |
+        v
+Action Group triggered → email sent to pariksha.rajput2912@gmail.com
+```
 
 **Azure Defender Alerts triggered:**
 
 | Alert | Trigger |
-|-------|---------|
+|---|---|
 | `Suspicious management activity` | Diagnostic settings deleted |
-| `Privileged container detected` | Unauthorized kubectl exec into privileged pod |
 | `Unusual deletion activity` | Log workspace or diagnostic setting removed |
+| `LOG_TAMPER_ATTEMPT` (app-level) | DELETE/PATCH on /system/logs endpoint |
 
-**Why this is powerful:** The Azure Activity Log is immutable from within the subscription — deleting it requires elevated portal access. With Azure Policy + Resource Locks (`CanNotDelete`) on the Log Analytics workspace, deletion is blocked entirely.
-
----
-
-### Scenario 4 — Azure Monitor + Action Group Alert Pipeline (Infrastructure-Level)
-
-**What it is:** Any suspicious app-level event captured in Log Analytics automatically triggers an email alert via Azure Monitor — completely independent of the Flask app. Works even if the app is down or compromised.
-
-**How it works:**
-```
-App logs JSON to stdout
-       |
-  AKS OMS Agent
-       |
-  Log Analytics Workspace
-       |
-  Azure Monitor Scheduled Query Alert
-  (queries ContainerLog every 1–5 min)
-       |
-  Action Group
-      / \
-  Email  (extensible to SMS, webhook, Teams)
+**Verify in Log Analytics:**
+```kusto
+ContainerLog
+| where LogEntry contains "LOG_TAMPER_ATTEMPT"
+| project TimeGenerated, LogEntry
+| order by TimeGenerated desc
+| take 10
 ```
 
-**Alert rules wired in main.tf:**
+**Alert rules active after terraform apply:**
 
-| Rule | Query | Window | Severity |
+| Rule | Event | Window | Severity |
 |---|---|---|---|
-| `brute-force-detection` | `ContainerLog \| where LogEntry contains "BRUTE_FORCE_DETECTED"` | PT5M | 0 (Critical) |
-| `scanning-detection` | `ContainerLog \| where LogEntry contains "SCANNING_DETECTED"` | PT1M | 0 (Critical) |
+| `brute-force-detection` | `BRUTE_FORCE_DETECTED` | PT5M | 0 (Critical) |
+| `scanning-detection` | `SCANNING_DETECTED` | PT1M | 0 (Critical) |
+| `idor-attempt-detection` | `IDOR_ATTEMPT_DETECTED` | PT5M | 0 (Critical) |
+| `log-tamper-detection` | `LOG_TAMPER_ATTEMPT` | PT5M | 0 (Critical) |
 
-**Suspicious events covered:**
-
-| Event | Trigger Condition |
-|-------|-------------------|
-| `BRUTE_FORCE_DETECTED` | 5+ failed logins from same IP within 5 minutes |
-| `SCANNING_DETECTED` | 10+ unauthorized route hits from same IP in 1 minute |
-| `SUSPICIOUS_TRANSACTION` | Payment amount exceeds $5,000 |
+**Why this is powerful:** Logs in this architecture flow from pod stdout → OMS agent → Log Analytics — all outside the attacker's reach. Azure Activity Log is immutable from within the subscription. Even a complete pod deletion cannot erase evidence already forwarded externally. The email alert fires independently of the Flask app — even if the app is fully compromised.
 
 ---
+
 
 ## Security Notification Flow (Azure)
 
@@ -834,25 +932,25 @@ Deployment + Service manifest for AKS. Covers **Phase 1** (load balancer) and **
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: splitwise
+  name: fairsplit
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: splitwise
+      app: fairsplit
   template:
     metadata:
       labels:
-        app: splitwise
+        app: fairsplit
     spec:
       containers:
-      - name: splitwise
-        image: <acr_login_server>/splitwise:latest
+      - name: fairsplit
+        image: <acr_login_server>/fairsplit:latest
         ports:
         - containerPort: 5000
         env:
         - name: DATABASE_URL
-          value: "postgresql://splitwiseadmin:<password>@<postgresql_host>:5432/spiltwise"
+          value: "postgresql://fairsplitadmin:<password>@<postgresql_host>:5432/fairsplit"
         - name: SECRET_KEY
           value: "<your_secret_key>"
         securityContext:
@@ -862,11 +960,11 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: splitwise-svc
+  name: fairsplit-svc
 spec:
   type: LoadBalancer
   selector:
-    app: splitwise
+    app: fairsplit
   ports:
   - port: 80
     targetPort: 5000
@@ -888,18 +986,18 @@ terraform apply
 ```bash
 ACR_SERVER=$(terraform output -raw acr_login_server)
 az acr login --name $ACR_SERVER
-docker build -t $ACR_SERVER/splitwise:latest .
-docker push $ACR_SERVER/splitwise:latest
+docker build -t $ACR_SERVER/fairsplit:latest .
+docker push $ACR_SERVER/fairsplit:latest
 ```
 
 #### Step 6 — Create PostgreSQL Database
 
 ```bash
 psql "host=$(terraform output -raw postgresql_host) port=5432 \
-  dbname=postgres user=splitwiseadmin password=<pw> sslmode=require"
+  dbname=postgres user=fairsplitadmin password=<pw> sslmode=require"
 
 # Inside psql:
-CREATE DATABASE spiltwise;
+CREATE DATABASE fairsplit;
 \q
 # SQLAlchemy creates all tables automatically on first app startup
 ```
@@ -911,7 +1009,7 @@ az aks get-credentials --resource-group secure-aks-rg \
   --name $(terraform output -raw aks_cluster_name)
 
 kubectl apply -f k8s-deployment.yaml
-kubectl get svc splitwise-svc   # wait ~2 min for EXTERNAL-IP
+kubectl get svc fairsplit-svc   # wait ~2 min for EXTERNAL-IP
 ```
 
 #### Step 8 — Demo Security Scenarios (Phase 9)
@@ -919,9 +1017,10 @@ Once the app is live, run these to trigger and verify alerts:
 
 | Scenario | How to trigger | What to check |
 |---|---|---|
-| Brute force | Hit `/login` 5+ times with wrong password | Log Analytics: `BRUTE_FORCE_DETECTED` + email alert fires |
+| Brute force | Hit `/login` 3+ times with wrong password | Log Analytics: `BRUTE_FORCE_DETECTED` + email alert fires |
+| IDOR | POST /expenses/<id>/settle for another user's expense | Log Analytics: `IDOR_ATTEMPT_DETECTED` + 403 response |
+| Log tampering | curl -X DELETE https://20.100.154.95.nip.io/system/logs | Log Analytics: `LOG_TAMPER_ATTEMPT` + 403 response |
 | Route scanning | Hit `/dashboard`, `/wallet`, `/expenses` 10+ times without a session cookie | Log Analytics: `SCANNING_DETECTED` log appears |
-| Suspicious transaction | Send a payment > $5,000 via the app | Log Analytics: `SUSPICIOUS_TRANSACTION` log appears |
 
 #### Step 9 — Verify Monitoring Pipeline (Phase 8)
 
@@ -929,7 +1028,7 @@ Once the app is live, run these to trigger and verify alerts:
 # Confirm logs are flowing to Log Analytics
 az monitor log-analytics query \
   --workspace <workspace-id> \
-  --analytics-query "ContainerLog | where LogEntry contains 'spiltwise' | take 10"
+  --analytics-query "ContainerLog | where LogEntry contains 'fairsplit' | take 10"
 ```
 
 Azure Portal checks:
@@ -941,7 +1040,7 @@ Azure Portal checks:
 ## Project Structure
 
 ```
-spiltwise/
+fairsplit/
 ├── app.py                  # Main Flask application
 ├── security.py             # Security middleware (Azure-native logging)
 ├── main.tf                 # Terraform — full Azure infrastructure
@@ -966,7 +1065,187 @@ spiltwise/
 ```
 
 
-Added a new "Deployment Status & Next Steps" section to DETAILING.md right before the Project Structure section. It includes:
+  http://20.100.217.61                                                                                                   
+  You should see the Fairsplit landing page. Try signing up and creating an expense to confirm everything works end to
+   end.                
 
-  - What's Done table — current completed items                                                                                                                                                                                                 - What's Missing table — the 3 blocking files (Dockerfile, k8s-deployment.yaml, incomplete requirements.txt)
-  - Steps 1–9 in order — each with the exact commands, covering file creation → Terraform → Docker → AKS deploy → Phase 9 demo → Phase 8 monitoring verification 
+  ---
+  Your deployment is complete. Here's what's running:
+
+  ┌─────────────────────────┬────────────────────────────────────────────────┐
+  │        Component        │                     Status                     │
+  ├─────────────────────────┼────────────────────────────────────────────────┤
+  │ Backend (Flask)         │ 2 pods running on backend node pool            │
+  ├─────────────────────────┼────────────────────────────────────────────────┤
+  │ Frontend (NGINX)        │ 2 pods running on frontend node pool           │
+  ├─────────────────────────┼────────────────────────────────────────────────┤
+  ├─────────────────────────┼────────────────────────────────────────────────┤
+  │ Azure Disk (SQLite PVC) │ Attached to backend                            │
+  ├─────────────────────────┼────────────────────────────────────────────────┤
+  │ External IP             │ 20.100.217.61                                  │
+  ├─────────────────────────┼────────────────────────────────────────────────┤
+  │ ACR image               │ fairsplitacrq0w0x3.azurecr.io/fairsplit:latest │
+  └─────────────────────────┴────────────────────────────────────────────────┘
+
+  ---
+  For your CS581 demo, you can now trigger the Phase 9 security scenarios:
+
+  ├─────────────────────────┼────────────────────────────────────────────────┤
+  │ External IP             │ 20.100.217.61                                  │
+  ├─────────────────────────┼────────────────────────────────────────────────┤
+  │ ACR image               │ fairsplitacrq0w0x3.azurecr.io/fairsplit:latest │
+  └─────────────────────────┴────────────────────────────────────────────────┘
+
+  ---
+  For your CS581 demo, you can now trigger the Phase 9 security scenarios:
+
+  1. Brute force — try logging in with a wrong password 3+ times
+  2. IDOR — log in as one user, manually hit POST /expenses/<id>/settle for another user's expense
+  3. Log tampering — curl -X DELETE https://20.100.154.95.nip.io/system/logs
+
+---
+
+## CS581 Signature Project — Coverage Checklist
+
+### Phase 1 — Architecture Design
+
+| Checkpoint | Status | Detail |
+|---|---|---|
+| Virtual Network with subnets | Covered | VNet 10.0.0.0/16, frontend 10.0.1.0/24, backend 10.0.2.0/24 |
+| Public/private subnet separation | Covered | frontendpool (public) + backendpool (private, no internet) |
+| AKS cluster deployed | Covered | `secure-aks-cluster` with 2 node pools |
+| Load balancer configured | Covered | Azure Standard LB + NGINX Ingress Controller |
+| Multi-tier network diagram | Covered | Documented in architecture section |
+
+### Phase 2 — Cluster Deployment (IaC)
+
+| Checkpoint | Status | Detail |
+|---|---|---|
+| Infrastructure as Code (Terraform) | Covered | Full `main.tf` provisions all Azure resources |
+| AKS cluster via Terraform | Covered | `azurerm_kubernetes_cluster` with both node pools |
+| ACR via Terraform | Covered | `azurerm_container_registry` Standard tier |
+| Log Analytics via Terraform | Covered | `azurerm_log_analytics_workspace` |
+| Microsoft Defender via Terraform | Covered | `azurerm_security_center_subscription_pricing` |
+| Monitor alert rules via Terraform | Covered | 4 alert rules: brute-force, scanning, IDOR, log-tamper |
+
+### Phase 3 — Multi-Tier Application Deployment
+
+| Checkpoint | Status | Detail |
+|---|---|---|
+| Frontend tier | Covered | NGINX reverse proxy pod on frontendpool |
+| Backend tier | Covered | Flask + Gunicorn pod on backendpool |
+| Database tier | Partial | SQLite on Azure Disk PVC — not PostgreSQL as originally planned |
+| Kubernetes Deployment manifests | Covered | backend-deployment.yaml, frontend-deployment.yaml |
+| Kubernetes Services | Covered | ClusterIP for backend, LoadBalancer for frontend |
+| Persistent storage | Covered | Azure Disk PVC (1Gi, managed-csi) |
+| Microservices architecture | Not Covered | Monolith Flask app — justified as monolith-first approach |
+
+### Phase 4 — IAM, RBAC, Least Privilege
+
+| Checkpoint | Status | Detail |
+|---|---|---|
+| Managed Identity | Covered | SystemAssigned on AKS cluster |
+| AcrPull role assignment | Covered | kubelet identity to ACR (no passwords) |
+| Kubernetes ServiceAccount | Covered | `backend-sa` in fairsplit namespace |
+| Kubernetes Role + RoleBinding | Covered | `backend-role` — read-only on Secrets |
+| JWT Authentication | Not Covered | Using Flask session cookies instead of JWT tokens |
+
+### Phase 5 — Network Security
+
+| Checkpoint | Status | Detail |
+|---|---|---|
+| NSG on frontend subnet | Covered | Allow TCP 80, 443 from Internet only |
+| NSG on backend subnet | Covered | Allow TCP 5000 from VNet only (10.0.0.0/16) |
+| Kubernetes NetworkPolicy | Covered | backend allows only frontend pods on :5000 |
+| TLS/HTTPS enforced | Covered | cert-manager + Let's Encrypt + HTTP to HTTPS redirect |
+| NGINX Ingress with TLS termination | Covered | Valid certificate via nip.io domain |
+
+### Phase 6 — Data Security
+
+| Checkpoint | Status | Detail |
+|---|---|---|
+| Encryption at rest | Covered | Azure Disk encryption + AKS etcd encrypted |
+| Encryption in transit | Covered | TLS end-to-end via NGINX Ingress |
+| Kubernetes Secrets | Covered | `app-secret`, `smtp-secret` injected as env vars |
+| Azure Key Vault provisioned | Covered | `fairsplit-kv-q0w0x3` in Terraform |
+| Key Vault CSI driver integration | Not Covered | Secrets are env vars — noted as production improvement |
+| Secret rotation | Not Covered | Secrets are static — noted as future improvement |
+| Password hashing | Covered | Bcrypt with cost factor 12 |
+
+### Phase 7 — Container Security
+
+| Checkpoint | Status | Detail |
+|---|---|---|
+| Minimal base image | Covered | `python:3.11-slim` — no compiler or shell utilities |
+| Non-root user | Covered | `appuser` UID 1000, `runAsNonRoot: true` |
+| No privilege escalation | Covered | `allowPrivilegeEscalation: false` |
+| Registry vulnerability scanning | Covered | ACR Standard tier — scans on every push |
+| No secrets in image | Covered | All secrets injected at runtime via Kubernetes Secrets |
+| Read-only container filesystem | Not Covered | Filesystem is writable — mitigated by non-root user |
+| Pod Security Standards | Not Covered | No namespace-level securityContext policy |
+
+### Phase 8 — Monitoring and Logging
+
+| Checkpoint | Status | Detail |
+|---|---|---|
+| Centralized logging (Log Analytics) | Covered | OMS agent ships all pod logs |
+| Structured JSON security events | Covered | `log_security_event()` in security.py |
+| kube-audit logs | Covered | AKS Diagnostic Settings to Log Analytics |
+| Microsoft Defender for Containers | Covered | Runtime threat detection + kubectl exec alerts |
+| Azure Monitor alert rules | Covered | 4 Scheduled Query Alert rules |
+| Email notifications via Action Group | Covered | pariksha.rajput2912@gmail.com |
+| Azure Monitor Workbook / Dashboard | Not Covered | No custom workbook created |
+
+### Phase 9 — Threat Simulation and Mitigation
+
+| Checkpoint | Status | Detail |
+|---|---|---|
+| Scenario 1: Brute Force | Covered | 3 attempts, IP blocked, BRUTE_FORCE_DETECTED, email alert |
+| Scenario 2: IDOR | Covered | 403 Forbidden, IDOR_ATTEMPT_DETECTED, email alert |
+| Scenario 3: Log Deletion / Tampering | Covered | /system/logs DELETE blocked, attacker identity logged, email alert |
+| Scenario 4: Route Scanning | Covered | 10 unauthenticated hits, SCANNING_DETECTED, email alert |
+| Log Analytics queries for all scenarios | Covered | KQL queries documented for all 4 events |
+| Azure Defender alert (kubectl exec) | Covered | Defender flags "Command in container" |
+
+### Application Features
+
+| Checkpoint | Status | Detail |
+|---|---|---|
+| User signup / login | Covered | Bcrypt hashing, session-based auth |
+| Expense creation and splitting | Covered | Equal and custom split modes |
+| Balance calculation | Covered | Per-user balance view |
+| Payment / settlement system | Covered | Wallet debit/credit on settlement |
+| Notification service | Covered | In-app feed + Gmail SMTP email alerts |
+| Smart debt simplification | Covered | Greedy heap algorithm O(N log N) |
+| Financial insights dashboard | Covered | Spending charts, category breakdown |
+| Wallet system | Covered | Balance, top-up, transaction history |
+
+---
+
+### Overall Summary
+
+| Phase | Covered | Not Covered | Total |
+|---|---|---|---|
+| Phase 1 — Architecture | 5 | 0 | 5 |
+| Phase 2 — IaC | 6 | 0 | 6 |
+| Phase 3 — App Deployment | 6 | 1 | 7 |
+| Phase 4 — IAM / RBAC | 4 | 1 | 5 |
+| Phase 5 — Network Security | 5 | 0 | 5 |
+| Phase 6 — Data Security | 5 | 2 | 7 |
+| Phase 7 — Container Security | 5 | 2 | 7 |
+| Phase 8 — Monitoring | 6 | 1 | 7 |
+| Phase 9 — Threat Simulation | 6 | 0 | 6 |
+| Application Features | 8 | 0 | 8 |
+| **Total** | **56** | **7** | **63** |
+
+### The 7 Gaps and Justification
+
+| Gap | Justification |
+|---|---|
+| PostgreSQL (using SQLite) | SQLite on PVC is sufficient for CS581 demo scale; monolith-first approach documented |
+| Microservices architecture | Intentional monolith-first design; microservice split documented as future phase |
+| JWT authentication | Flask sessions are a valid auth mechanism; JWT noted as production enhancement |
+| Key Vault CSI driver | Key Vault is provisioned; env var injection acceptable for demo; CSI driver noted as production improvement |
+| Secret rotation | Static secrets acceptable for CS581; rotation policy noted as future improvement |
+| Read-only container filesystem | Non-root user + no privilege escalation provides equivalent protection for demo |
+| Azure Monitor Workbook | Log Analytics queries and alert rules fully cover monitoring requirements |

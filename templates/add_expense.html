@@ -1,5 +1,5 @@
-{% extends "base.html" %}
-{% block title %}Add Expense · Spiltwise{% endblock %}
+﻿{% extends "base.html" %}
+{% block title %}Add Expense Â· Fairsplit{% endblock %}
 {% block content %}
 <div class="page-header animate">
   <div>
@@ -142,7 +142,7 @@ function addMember(id, name, color) {
   chip.className = 'member-chip';
   chip.dataset.id = id;
   chip.style.cssText = `display:flex;align-items:center;gap:6px;background:${color};color:white;padding:6px 12px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer`;
-  chip.innerHTML = `<span>${name}</span><span onclick="removeMember('${id}')" style="opacity:0.7;margin-left:2px">✕</span>`;
+  chip.innerHTML = `<span>${name}</span><span onclick="removeMember('${id}')" style="opacity:0.7;margin-left:2px">âœ•</span>`;
   document.getElementById('members-list').appendChild(chip);
   if (splitType === 'custom') renderCustomInputs();
 }
@@ -180,3 +180,4 @@ document.addEventListener('click', e => {
 });
 </script>
 {% endblock %}
+

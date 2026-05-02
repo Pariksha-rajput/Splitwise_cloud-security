@@ -1,4 +1,4 @@
-import logging
+﻿import logging
 import json
 import os
 from datetime import datetime
@@ -8,7 +8,7 @@ from time import time
 
 # ── Structured Security Logger ────────────────────────────────────────────────
 # Logs flow to stdout → AKS container logs → Log Analytics → Azure Monitor alerts
-security_logger = logging.getLogger("spiltwise.security")
+security_logger = logging.getLogger("fairsplit.security")
 security_logger.setLevel(logging.INFO)
 handler = logging.StreamHandler()
 handler.setFormatter(logging.Formatter("%(message)s"))
@@ -16,7 +16,7 @@ if not security_logger.handlers:
     security_logger.addHandler(handler)
 
 # ── Config ────────────────────────────────────────────────────────────────────
-FAILED_LOGIN_THRESHOLD = 5      # block after 5 failures
+FAILED_LOGIN_THRESHOLD = 3      # block after 3 failures
 FAILED_LOGIN_WINDOW    = 300    # within 5 minutes
 SCANNING_THRESHOLD     = 10     # unauthorized hits before flagging
 SCANNING_WINDOW        = 60     # within 1 minute
@@ -36,7 +36,7 @@ def log_security_event(event_type, details, severity="WARNING", notify=False):
     """Log structured JSON security event. Flows to Azure Log Analytics via OMS agent."""
     event = {
         "timestamp":  datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "service":    "spiltwise",
+        "service":    "fairsplit",
         "event_type": event_type,
         "severity":   severity,
         "details":    details,
@@ -116,6 +116,19 @@ def record_unauthorized_access(ip, route, method):
             "hits_in_window": count,
             "action":         "Possible automated route scanning detected",
         }, severity="CRITICAL", notify=True)
+
+
+# ── Scenario 2b: IDOR — Unauthorized Expense Settlement ───────────────────────
+
+def log_idor_attempt(user_id, email, expense_id, ip):
+    """Log an IDOR attempt where a user tries to settle an expense they are not party to."""
+    log_security_event("IDOR_ATTEMPT_DETECTED", {
+        "user_id":    user_id,
+        "email":      email,
+        "expense_id": expense_id,
+        "ip":         ip,
+        "action":     "Blocked — user is not a member of this expense",
+    }, severity="CRITICAL")
 
 
 # ── Scenario 3: Suspicious Transaction ───────────────────────────────────────

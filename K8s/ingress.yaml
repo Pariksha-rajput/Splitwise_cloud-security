@@ -1,15 +1,19 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: splitwise-ingress
-  namespace: splitwise
+  name: fairsplit-ingress
+  namespace: fairsplit
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
 spec:
+  ingressClassName: nginx
   tls:
   - hosts:
-    - yourapp.com
-    secretName: tls-secret
+    - 20.100.154.95.nip.io
+    secretName: fairsplit-tls
   rules:
-  - host: yourapp.com
+  - host: 20.100.154.95.nip.io
     http:
       paths:
       - path: /

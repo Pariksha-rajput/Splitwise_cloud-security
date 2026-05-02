@@ -1,8 +1,8 @@
-apiVersion: v1
+﻿apiVersion: v1
 kind: Service
 metadata:
   name: backend
-  namespace: splitwise
+  namespace: fairsplit
 spec:
   type: ClusterIP
   selector:

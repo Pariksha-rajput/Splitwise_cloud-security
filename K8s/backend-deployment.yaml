@@ -2,9 +2,9 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: backend
-  namespace: splitwise
+  namespace: fairsplit
 spec:
-  replicas: 2
+  replicas: 1                        # must be 1 — Azure Disk (ReadWriteOnce) attaches to one pod only
   selector:
     matchLabels:
       app: backend
@@ -14,24 +14,44 @@ spec:
         app: backend
     spec:
       serviceAccountName: backend-sa
+      securityContext:
+        fsGroup: 1000
       containers:
       - name: backend
-        image:                #Need to add backend image name here
+        image: fairsplitacrq0w0x3.azurecr.io/fairsplit:latest
         ports:
         - containerPort: 5000
         env:
-        - name: DB_HOST
-          value:                      #Need to add database end point here
-        - name: DB_USER
+        - name: DATABASE_URL
+          value: "sqlite:////app/instance/fairsplit.db"
+        - name: SECRET_KEY
           valueFrom:
             secretKeyRef:
-              name: db-secret
-              key: username
-        - name: DB_PASSWORD
+              name: app-secret
+              key: secret-key
+        - name: SMTP_HOST
           valueFrom:
             secretKeyRef:
-              name: db-secret
-              key: password
+              name: smtp-secret
+              key: smtp-host
+        - name: SMTP_USER
+          valueFrom:
+            secretKeyRef:
+              name: smtp-secret
+              key: smtp-user
+        - name: SMTP_PASS
+          valueFrom:
+            secretKeyRef:
+              name: smtp-secret
+              key: smtp-pass
+        volumeMounts:
+        - name: db-storage
+          mountPath: /app/instance   # Flask stores fairsplit.db here
         securityContext:
           runAsNonRoot: true
+          runAsUser: 1000
           allowPrivilegeEscalation: false
+      volumes:
+      - name: db-storage
+        persistentVolumeClaim:
+          claimName: fairsplit-db-pvc

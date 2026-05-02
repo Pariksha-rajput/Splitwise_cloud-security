@@ -1,5 +1,5 @@
-{% extends "base.html" %}
-{% block title %}Payments · Spiltwise{% endblock %}
+﻿{% extends "base.html" %}
+{% block title %}Payments Â· Fairsplit{% endblock %}
 {% block content %}
 <div class="page-header animate">
   <div>
@@ -44,7 +44,7 @@
             {{ '-' if is_sender and not is_system else '+' }}${{ "%.2f"|format(p.amount) }}
           </strong>
         </td>
-        <td style="color:var(--text-muted);font-size:13px">{{ p.note or '—' }}</td>
+        <td style="color:var(--text-muted);font-size:13px">{{ p.note or 'â€”' }}</td>
         <td style="color:var(--text-muted);font-size:13px">{{ p.created_at.strftime('%d %b %Y, %I:%M %p') }}</td>
         <td><span class="badge badge-green"> {{ p.status|capitalize }}</span></td>
       </tr>
@@ -53,10 +53,11 @@
   </table>
   {% else %}
   <div class="empty-state">
-    <div class="icon">📤</div>
+    <div class="icon">ðŸ“¤</div>
     <p>No payments yet. Settle a balance to get started.</p>
     <a href="{{ url_for('balances') }}" class="btn btn-primary" style="margin-top:16px">View Balances</a>
   </div>
   {% endif %}
 </div>
 {% endblock %}
+

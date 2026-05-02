@@ -1,17 +1,17 @@
-#Access Control- implemented least privilege using Kubernetes RBAC
+﻿#Access Control- implemented least privilege using Kubernetes RBAC
 
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: backend-sa
-  namespace: splitwise
+  namespace: fairsplit
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: backend-role
-  namespace: splitwise
+  namespace: fairsplit
 rules:
 - apiGroups: [""]
   resources: ["pods"]
@@ -22,7 +22,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: backend-binding
-  namespace: splitwise
+  namespace: fairsplit
 subjects:
 - kind: ServiceAccount
   name: backend-sa

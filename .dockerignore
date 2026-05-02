@@ -1,0 +1,13 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+instance/
+*.db
+.env
+.terraform/
+*.tfstate
+*.tfstate.backup
+K8s/
+*.md
+.git/

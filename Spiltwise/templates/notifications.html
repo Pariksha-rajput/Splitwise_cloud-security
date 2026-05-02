@@ -19,11 +19,6 @@
     <i class="fa-solid fa-circle-exclamation"></i>
     SMTP is not configured. Add <code>SMTP_HOST</code>, <code>SMTP_USER</code>, and <code>SMTP_PASS</code> to your <code>.env</code> file (see <code>.env.example</code>), then restart the app. Messages are addressed to your login email{% if user %}: <strong>{{ user.email }}</strong>{% endif %}.
   </div>
-  {% else %}
-  <div class="alert alert-success" style="margin-bottom:14px">
-    <i class="fa-solid fa-circle-check"></i>
-    SMTP settings are present in <code>.env</code>{% if user %} (mail addressed to <strong>{{ user.email }}</strong>){% endif %}. That only means the app <em>can try</em> to send mail — it does not prove Gmail accepted login or delivery. Use the button below to verify.
-  </div>
   {% endif %}
   <div style="color:var(--text-muted);font-size:13px;margin-bottom:14px">
     When enabled, Fairsplit will email you for key activity like wallet top-ups, settlements, and when someone adds you to an expense.
